@@ -65,8 +65,9 @@ void usage( const char * msg = 0 )
    
    if(msg) std::cerr << "error: " << msg << "\n\n";
    
-   std::cerr << "usage: " << argv0 << " [options] shm-name\n\n";
+   std::cerr << "usage: " << argv0 << " [options] remote-host shm-name\n\n";
    
+   std::cerr << "   remote-host is the address of the remote host where milk0Server is running.\n\n";
    std::cerr << "   shm-name is the root of the ImageStreamIO shared memory image file.\n";
    std::cerr << "            If the full path is \"/tmp/image00.im.shm\" then shm-name=image00\n";
    std::cerr << "options:\n";
@@ -141,18 +142,19 @@ int main (int argc, char *argv[])
    }
 
 
-   if( optind != argc-1)
+   if( optind != argc-2)
    {
-      usage("must specify shared memory file name as only non-option argument.");
+      usage("must specify remote address and shared memory file name as only non-option arguments.");
       return -1;
    }
    
-   std::string shmem_key = argv[optind];
+   std::string remote_address = argv[optind];
+   std::string shmem_key = argv[optind+1];
       
-   
    
    milk0::milk0Client mzc;
    mzc.argv0(argv0);
+   mzc.address(remote_address);
    mzc.imagePort(port);
    mzc.shMemImName(shmem_key);
    mzc.localShMemImName(local_shmem_key);

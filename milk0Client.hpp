@@ -29,7 +29,7 @@ protected:
    
    std::string m_argv0 {"milk0Client"}; ///< The invoked name, used for error messages.
    
-   std::string m_address {"localhost"}; ///< The address of the image server.
+   std::string m_address {""}; ///< The address of the image server.
    
    int m_imagePort{5556}; ///< The port number to use for the image server.
    
@@ -63,13 +63,27 @@ public:
      * \returns 0 on success
      * \returns -1 on error
      */
-   int argv0( const std::string & av0 );
+   int argv0( const std::string & av0 /**< [in] the new invoked name */);
    
    /// Get the invoked name
    /**
      * \returns the invoked name, the current value of m_argv0
      */
    std::string argv0();
+   
+   /// Set the address of the remote server.
+   /** This sets the value of m_address.
+     * 
+     * \returns 0 on success
+     * \returns -1 on error
+     */
+   int address( const std::string & add /**< [in] the new address */ );
+   
+   /// Get the address
+   /**
+     * \returns the remote address, the current value of m_address
+     */
+   std::string address();
    
    /// Set the port number of the image server
    /** This sets the value of m_imagePort.
@@ -165,6 +179,19 @@ inline
 std::string milk0Client::argv0()
 {
    return m_argv0;
+}
+
+inline 
+int milk0Client::address( const std::string & add )
+{
+   m_address= add;
+   return 0;
+}
+
+inline 
+std::string milk0Client::address()
+{
+   return m_address;
 }
 
 inline
