@@ -1,0 +1,33 @@
+######################################################
+## makefile for milk0Server                         ##
+##                                                  ## 
+## Edit BIN_PATH to specify installation directory. ##
+######################################################
+
+BIN_PATH=$(HOME)/bin
+
+
+######################################################
+
+
+TARGET=milk0Server
+HEADER=milk0Server.hpp
+
+
+OPTIMIZE ?= -O3 -ffast-math
+
+CXXFLAGS += -std=c++14 $(OPTIMIZE)
+
+LDLIBS += -lzmq -lImageStreamIO -lpthread
+
+all: $(TARGET) $(HEADER)
+
+install: all
+	install -d $(BIN_PATH)
+	install $(TARGET) $(BIN_PATH)
+
+.PHONY: clean
+clean:
+	rm -f $(TARGET)
+	rm -f *.o 
+	rm -f *~
