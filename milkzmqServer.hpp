@@ -1,4 +1,4 @@
-/** \file milk0Server.hpp
+/** \file milkzmqServer.hpp
   * \brief Class implementing a ZeroMQ ImageStreamIO server
   * \author Jared R. Males (jaredmales@gmail.com)
   *
@@ -9,36 +9,36 @@
 //***********************************************************************//
 // Copyright 2018 Jared R. Males (jaredmales@gmail.com)
 //
-// This file is part of milk0mq.
+// This file is part of milkzmq.
 //
-// milk0mq is free software: you can redistribute it and/or modify
+// milkzmq is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// milk0mq is distributed in the hope that it will be useful,
+// milkzmq is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with milk0mq.  If not, see <http://www.gnu.org/licenses/>.
+// along with milkzmq.  If not, see <http://www.gnu.org/licenses/>.
 //***********************************************************************//
 
-#ifndef milk0Server_hpp
-#define milk0Server_hpp
+#ifndef milkzmqServer_hpp
+#define milkzmqServer_hpp
 
 #include <zmq.hpp>
 
 #include <ImageStreamIO.h>
 
-#include "milk0Utils.hpp"
+#include "milkzmqUtils.hpp"
 
-namespace milk0 
+namespace milkzmq 
 {
 
 
-class milk0Server
+class milkzmqServer
 {
 protected:
    
@@ -47,7 +47,7 @@ protected:
      *@{
      */
    
-   std::string m_argv0 {"milk0Server"}; ///< The invoked name, used for error messages.
+   std::string m_argv0 {"milkzmqServer"}; ///< The invoked name, used for error messages.
    
    int m_imagePort{5556}; ///< The port number to use for the image server.
    
@@ -76,10 +76,10 @@ protected:
 public:
    
    /// Default c'tor
-   milk0Server();
+   milkzmqServer();
    
    /// Destructor
-   ~milk0Server();
+   ~milkzmqServer();
    
    /// Set the invoked name of the application.
    /** This sets the value of m_argv0, used for error reporting.
@@ -181,7 +181,7 @@ public:
    
 private:
    ///Thread starter, called by metaThreadStart on thread construction.  Calls metaThreadExec.
-   static void internal_metaThreadStart( milk0Server * mzs /**< [in] a pointer to a milk0Server instance (normally this) */);
+   static void internal_metaThreadStart( milkzmqServer * mzs /**< [in] a pointer to a milkzmqServer instance (normally this) */);
 
 public:
    /// Start the metadata thread.
@@ -193,7 +193,7 @@ public:
 
 private:
    ///Thread starter, called by imageThreadStart on thread construction.  Calls imageThreadExec.
-   static void internal_imageThreadStart( milk0Server * mzs /**< [in] a pointer to a milk0Server instance (normally this) */);
+   static void internal_imageThreadStart( milkzmqServer * mzs /**< [in] a pointer to a milkzmqServer instance (normally this) */);
 
 public:
    /// Start the image thread.
@@ -217,36 +217,36 @@ public:
    ///@}
 };
 
-bool milk0Server::m_timeToDie = false;
+bool milkzmqServer::m_timeToDie = false;
 
 inline
-milk0Server::milk0Server()
+milkzmqServer::milkzmqServer()
 {
    
    m_ZMQ_context = new zmq::context_t;
 }
 
 inline
-milk0Server::~milk0Server()
+milkzmqServer::~milkzmqServer()
 {
    if(m_ZMQ_context) delete m_ZMQ_context;
 }
 
 inline 
-int milk0Server::argv0( const std::string & av0 )
+int milkzmqServer::argv0( const std::string & av0 )
 {
    m_argv0 = av0;
    return 0;
 }
 
 inline 
-std::string milk0Server::argv0()
+std::string milkzmqServer::argv0()
 {
    return m_argv0;
 }
 
 inline
-int milk0Server::imagePort( const int & imagePort )
+int milkzmqServer::imagePort( const int & imagePort )
 {
    m_imagePort = imagePort;
    
@@ -254,14 +254,14 @@ int milk0Server::imagePort( const int & imagePort )
 }
 
 inline
-int milk0Server::imagePort()
+int milkzmqServer::imagePort()
 {
    return m_imagePort;
 }
 
 
 inline
-int milk0Server::shMemImName( const std::string & name )
+int milkzmqServer::shMemImName( const std::string & name )
 {
    m_shMemImName = name;
    
@@ -269,71 +269,71 @@ int milk0Server::shMemImName( const std::string & name )
 }
 
 inline
-std::string milk0Server::shMemImName()
+std::string milkzmqServer::shMemImName()
 {
    return m_shMemImName;
 }
 
 inline
-int milk0Server::semaphoreNumber( const int & number )
+int milkzmqServer::semaphoreNumber( const int & number )
 {
    m_sempahoreNumber = number;
    return 0;
 }
 
 inline
-int milk0Server::semaphoreNumber()
+int milkzmqServer::semaphoreNumber()
 {
    return m_sempahoreNumber;
 }
    
 inline
-int milk0Server::usecSleep( const int & usec )
+int milkzmqServer::usecSleep( const int & usec )
 {
    m_usecSleep = usec;
    return 0;
 }
 
 inline
-int milk0Server::usecSleep()
+int milkzmqServer::usecSleep()
 {
    return m_usecSleep;
 }
 
 inline
-int milk0Server::fpsTgt(const float & fps )
+int milkzmqServer::fpsTgt(const float & fps )
 {
    m_fpsTgt = fps;
    return 0;
 }
 
 inline
-float milk0Server::fpsTgt()
+float milkzmqServer::fpsTgt()
 {
    return m_fpsTgt;
 }
  
 inline
-int milk0Server::fpsGain(const float & gain )
+int milkzmqServer::fpsGain(const float & gain )
 {
    m_fpsGain = gain;
    return 0;
 }
 
 inline
-float milk0Server::fpsGain()
+float milkzmqServer::fpsGain()
 {
    return m_fpsGain;
 }
 
 inline
-void milk0Server::internal_metaThreadStart( milk0Server * mzs )
+void milkzmqServer::internal_metaThreadStart( milkzmqServer * mzs )
 {
    mzs->metaThreadExec();
 }
 
 inline
-int milk0Server::metaThreadStart()
+int milkzmqServer::metaThreadStart()
 {
    try
    {
@@ -341,21 +341,21 @@ int milk0Server::metaThreadStart()
    }
    catch( const std::exception & e )
    {
-      std::cerr << "milk0Server: exception in meta thread startup.\n";
+      std::cerr << "milkzmqServer: exception in meta thread startup.\n";
       std::cerr << "  " <<  e.what() << "\n";
       std::cerr << "  at " __FILE__ << " line " << __LINE__ << "\n"; 
       return -1;
    }
    catch( ... )
    {
-      std::cerr << "milk0Server: unknown exception in meta thread startup.\n";
+      std::cerr << "milkzmqServer: unknown exception in meta thread startup.\n";
       std::cerr << "  at " __FILE__ << " line " << __LINE__ << "\n"; 
       return -1;
    }
    
    if(!m_metaThread.joinable())
    {
-      std::cerr << "milk0Server: meta thread did not start.\n";
+      std::cerr << "milkzmqServer: meta thread did not start.\n";
       std::cerr << "  at " __FILE__ << " line " << __LINE__ << "\n";
       return -1;
    }
@@ -364,7 +364,7 @@ int milk0Server::metaThreadStart()
 }
 
 inline
-void milk0Server::metaThreadExec()
+void milkzmqServer::metaThreadExec()
 {
    zmq::socket_t socket (*m_ZMQ_context, ZMQ_REP);
    socket.bind ("tcp://*:5555");
@@ -387,13 +387,13 @@ void milk0Server::metaThreadExec()
 
 
 inline
-void milk0Server::internal_imageThreadStart( milk0Server * mzs )
+void milkzmqServer::internal_imageThreadStart( milkzmqServer * mzs )
 {
    mzs->imageThreadExec();
 }
 
 inline
-int milk0Server::imageThreadStart()
+int milkzmqServer::imageThreadStart()
 {
    try
    {
@@ -420,7 +420,7 @@ int milk0Server::imageThreadStart()
 }
 
 inline
-void milk0Server::imageThreadExec()
+void milkzmqServer::imageThreadExec()
 {   
    IMAGE image;
 
@@ -430,7 +430,7 @@ void milk0Server::imageThreadExec()
 
    std::string srvstr = "tcp://*:" + std::to_string(m_imagePort);
    
-   std::cout << "milk0Server: Beginning service at " << srvstr << "\n";
+   std::cout << "milkzmqServer: Beginning service at " << srvstr << "\n";
    
    zmq::socket_t publisher (*m_ZMQ_context, ZMQ_PUB);
    publisher.bind(srvstr);
@@ -449,7 +449,7 @@ void milk0Server::imageThreadExec()
             if(image.md[0].sem <= m_sempahoreNumber) 
             {
                ImageStreamIO_closeIm(&image);
-               milk0::sleep(1); //We just need to wait for the server process to finish startup.
+               milkzmq::sleep(1); //We just need to wait for the server process to finish startup.
             }
             else
             {
@@ -460,7 +460,7 @@ void milk0Server::imageThreadExec()
          }
          else
          {
-            milk0::sleep(1); //be patient
+            milkzmq::sleep(1); //be patient
          }
       }
       
@@ -507,7 +507,7 @@ void milk0Server::imageThreadExec()
             //Do a wait for max fps here.
             if( get_curr_time() - lastCheck < 1.0/m_fpsTgt-delta) 
             {
-               milk0::microsleep(m_usecSleep);
+               milkzmq::microsleep(m_usecSleep);
                continue;
             }
             lastCheck = get_curr_time();
@@ -534,7 +534,7 @@ void milk0Server::imageThreadExec()
 
             if(image.md[0].sem <= 0) break; //Indicates that the server has cleaned up.
             
-            milk0::microsleep(m_usecSleep);
+            milkzmq::microsleep(m_usecSleep);
          }
       }
 
@@ -554,17 +554,17 @@ void milk0Server::imageThreadExec()
    if(opened) ImageStreamIO_closeIm(&image);
    if(msg) free(msg);
    
-} // milk0Server::imageThreadExec()
+} // milkzmqServer::imageThreadExec()
 
 inline 
-void milk0Server::reportError( const std::string & msg,
+void milkzmqServer::reportError( const std::string & msg,
                                   const std::string & file,
                                   int line
                                 )
 {
-   milk0::reportError(m_argv0, msg, file, line);
+   milkzmq::reportError(m_argv0, msg, file, line);
 }
 
-} //namespace milk0 
+} //namespace milkzmq 
 
-#endif //milk0Server_hpp
+#endif //milkzmqServer_hpp

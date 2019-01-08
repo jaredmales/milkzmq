@@ -1,4 +1,4 @@
-/** \file milk0Utils.hpp
+/** \file milkzmqUtils.hpp
   * \brief Useful tools for milk 0.
   * \author Jared R. Males (jaredmales@gmail.com)
   *
@@ -9,31 +9,31 @@
 //***********************************************************************//
 // Copyright 2018 Jared R. Males (jaredmales@gmail.com)
 //
-// This file is part of milk0mq.
+// This file is part of milkzmq.
 //
-// milk0mq is free software: you can redistribute it and/or modify
+// milkzmq is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// milk0mq is distributed in the hope that it will be useful,
+// milkzmq is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with milk0mq.  If not, see <http://www.gnu.org/licenses/>.
+// along with milkzmq.  If not, see <http://www.gnu.org/licenses/>.
 //***********************************************************************//
 
-#ifndef milk0Utils_hpp
-#define milk0Utils_hpp
+#ifndef milkzmqUtils_hpp
+#define milkzmqUtils_hpp
 
 #include <iostream>
 #include <string>
 #include <chrono>
 #include <thread>
 
-namespace milk0 
+namespace milkzmq 
 {
 
 /// Sleep for a specified period in seconds.
@@ -75,6 +75,6 @@ void reportError( const std::string & argv0, ///< [in] the name of the applicati
    std::cerr << "  at " << file << " line " << line << "\n"; 
 }
 
-} //namespace milk0 
+} //namespace milkzmq 
 
 #endif //milkZeroUtils_hpp

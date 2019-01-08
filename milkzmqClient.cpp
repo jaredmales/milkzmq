@@ -1,5 +1,5 @@
-/** \file milk0Server.cpp
-  * \brief Main function for a simple ZeroMQ ImageStreamIO server
+/** \file milkzmqClient.cpp
+  * \brief Main function for a simple ZeroMQ ImageStreamIO client
   * \author Jared R. Males (jaredmales@gmail.com)
   *
   * History:
@@ -9,26 +9,25 @@
 //***********************************************************************//
 // Copyright 2018 Jared R. Males (jaredmales@gmail.com)
 //
-// This file is part of milk0mq.
+// This file is part of milkzmq.
 //
-// milk0mq is free software: you can redistribute it and/or modify
+// milkzmq is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-//
-// milk0mq is distributed in the hope that it will be useful,
+//r
+// milkzmq is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with milk0mq.  If not, see <http://www.gnu.org/licenses/>.
+// along with milkzmq.  If not, see <http://www.gnu.org/licenses/>.
 //***********************************************************************//
 
 #include <signal.h>
 
-#include "milk0Server.hpp"
-
+#include "milkzmqClient.hpp"
 
 std::string argv0;
 
@@ -42,7 +41,7 @@ void sigHandler( int signum,
    static_cast<void>(siginf);
    static_cast<void>(ucont);
    
-   milk0::milk0Server::m_timeToDie = true;
+   milkzmq::milkzmqClient::m_timeToDie = true;
 }
 
 int setSigTermHandler()
@@ -85,29 +84,25 @@ void usage( const char * msg = 0 )
    
    if(msg) std::cerr << "error: " << msg << "\n\n";
    
-   std::cerr << "usage: " << argv0 << " [options] shm-name\n\n";
+   std::cerr << "usage: " << argv0 << " [options] remote-host shm-name\n\n";
    
+   std::cerr << "   remote-host is the address of the remote host where milkzmqServer is running.\n\n";
    std::cerr << "   shm-name is the root of the ImageStreamIO shared memory image file.\n";
    std::cerr << "            If the full path is \"/tmp/image00.im.shm\" then shm-name=image00\n";
    std::cerr << "options:\n";
    std::cerr << "    -h    print this message and exit.\n";
    std::cerr << "    -p    specify the port number of the server [default = 5556].\n";
-   std::cerr << "    -u    specify the loop sleep time in usecs [default = 100].\n";
-   std::cerr << "    -f    specify the F.P.S. target [default = 30.0].\n";
-   std::cerr << "    -s    specify the semaphore number [default=0].\n";
-   
+   std::cerr << "    -l    specify the local shared memory file name [default is same as shm-name].\n";
+
+   return;
 }
 
-int main( int argc,
-          char ** argv
-        )
-{
-   
-   int port = 5556;
-   int usecSleep = 100;
-   float fpsTgt = 30.0;
-   int semNum = 0;
 
+int main (int argc, char *argv[])
+{
+
+   int port = 5556;
+   std::string local_shmem_key;   
    bool help = false;
 
    argv0 = argv[0];
@@ -115,7 +110,7 @@ int main( int argc,
    opterr = 0;
    
    int c;
-   while ((c = getopt (argc, argv, "hp:u:f:s:")) != -1)
+   while ((c = getopt (argc, argv, "hp:l:")) != -1)
    {
       if(c == 'h')
       {
@@ -138,14 +133,8 @@ int main( int argc,
          case 'p':
             port = atoi(optarg);
             break;
-         case 'u':
-            usecSleep = atoi(optarg);
-            break;
-         case 'f':
-           fpsTgt = atof(optarg);
-           break;
-         case 's':
-            semNum = atoi(optarg);
+         case 'l':
+            local_shmem_key = std::string(optarg);
             break;
          case '?':
             char errm[256];
@@ -172,29 +161,30 @@ int main( int argc,
    }
 
 
-   if( optind != argc-1)
+   if( optind != argc-2)
    {
-      usage("must specify shared memory file name as only non-option argument.");
+      usage("must specify remote address and shared memory file name as only non-option arguments.");
       return -1;
    }
    
-   std::string shmem_key = argv[optind];
+   std::string remote_address = argv[optind];
+   std::string shmem_key = argv[optind+1];
+      
    
+   milkzmq::milkzmqClient mzc;
+   mzc.argv0(argv0);
+   mzc.address(remote_address);
+   mzc.imagePort(port);
+   mzc.shMemImName(shmem_key);
+   mzc.localShMemImName(local_shmem_key);
    
-   
-   milk0::milk0Server mzs;
-   
-   mzs.argv0(argv0);
-   mzs.imagePort(port);
-   mzs.shMemImName(shmem_key);
-   mzs.semaphoreNumber(semNum);
-   mzs.fpsTgt(fpsTgt);
-   mzs.usecSleep(usecSleep);
-   
-   mzs.imageThreadStart();
+   mzc.imageThreadStart();
    
    while(1) 
    {
-      milk0::sleep(1);
+      milkzmq::sleep(1);
    }
+   
+
+   return 0;
 }

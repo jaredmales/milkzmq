@@ -1,17 +1,17 @@
 ######################################################
-## makefile for milk0Client                         ##
+## makefile for milkzmqClient                         ##
 ##                                                  ## 
 ## Edit BIN_PATH to specify installation directory. ##
 ######################################################
 
-BIN_PATH=$(HOME)/bin
+BIN_PATH?=$(HOME)/bin
 
 
 ######################################################
 
 
-TARGET=milk0Client
-HEADER=milk0Client.hpp
+TARGET=milkzmqClient
+HEADER=milkzmqClient.hpp
 
 
 OPTIMIZE ?= -O3 -ffast-math

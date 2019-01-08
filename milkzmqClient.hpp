@@ -1,4 +1,4 @@
-/** \file milk0Client.hpp
+/** \file milkzmqClient.hpp
   * \brief Class implementing a ZeroMQ ImageStreamIO client
   * \author Jared R. Males (jaredmales@gmail.com)
   *
@@ -9,35 +9,35 @@
 //***********************************************************************//
 // Copyright 2018 Jared R. Males (jaredmales@gmail.com)
 //
-// This file is part of milk0mq.
+// This file is part of milkzmq.
 //
-// milk0mq is free software: you can redistribute it and/or modify
+// milkzmq is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// milk0mq is distributed in the hope that it will be useful,
+// milkzmq is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with milk0mq.  If not, see <http://www.gnu.org/licenses/>.
+// along with milkzmq.  If not, see <http://www.gnu.org/licenses/>.
 //***********************************************************************//
 
-#ifndef milk0Client_hpp
-#define milk0Client_hpp
+#ifndef milkzmqClient_hpp
+#define milkzmqClient_hpp
 
 #include <zmq.hpp>
 
 #include <ImageStreamIO.h>
 
-#include "milk0Utils.hpp"
+#include "milkzmqUtils.hpp"
 
-namespace milk0 
+namespace milkzmq 
 {
    
-class milk0Client
+class milkzmqClient
 {
 protected:
    
@@ -46,7 +46,7 @@ protected:
      *@{
      */
    
-   std::string m_argv0 {"milk0Client"}; ///< The invoked name, used for error messages.
+   std::string m_argv0 {"milkzmqClient"}; ///< The invoked name, used for error messages.
    
    std::string m_address {""}; ///< The address of the image server.
    
@@ -71,10 +71,10 @@ protected:
 public:
    
    /// Default c'tor
-   milk0Client();
+   milkzmqClient();
    
    /// Destructor
-   ~milk0Client();
+   ~milkzmqClient();
    
    /// Set the invoked name of the application.
    /** This sets the value of m_argv0, used for error reporting.
@@ -148,7 +148,7 @@ public:
    
 private:
    ///Thread starter, called by imageThreadStart on thread construction.  Calls imageThreadExec.
-   static void internal_imageThreadStart( milk0Client * mzs /**< [in] a pointer to a milk0Client instance (normally this) */);
+   static void internal_imageThreadStart( milkzmqClient * mzs /**< [in] a pointer to a milkzmqClient instance (normally this) */);
 
 public:
    /// Start the image thread.
@@ -172,49 +172,49 @@ public:
    ///@}
 };
 
-bool milk0Client::m_timeToDie = false;
+bool milkzmqClient::m_timeToDie = false;
 
 inline
-milk0Client::milk0Client()
+milkzmqClient::milkzmqClient()
 {
    
    m_ZMQ_context = new zmq::context_t(1);
 }
 
 inline
-milk0Client::~milk0Client()
+milkzmqClient::~milkzmqClient()
 {
    if(m_ZMQ_context) delete m_ZMQ_context;
 }
 
 inline 
-int milk0Client::argv0( const std::string & av0 )
+int milkzmqClient::argv0( const std::string & av0 )
 {
    m_argv0 = av0;
    return 0;
 }
 
 inline 
-std::string milk0Client::argv0()
+std::string milkzmqClient::argv0()
 {
    return m_argv0;
 }
 
 inline 
-int milk0Client::address( const std::string & add )
+int milkzmqClient::address( const std::string & add )
 {
    m_address= add;
    return 0;
 }
 
 inline 
-std::string milk0Client::address()
+std::string milkzmqClient::address()
 {
    return m_address;
 }
 
 inline
-int milk0Client::imagePort( const int & imagePort )
+int milkzmqClient::imagePort( const int & imagePort )
 {
    m_imagePort = imagePort;
    
@@ -222,13 +222,13 @@ int milk0Client::imagePort( const int & imagePort )
 }
 
 inline
-int milk0Client::imagePort()
+int milkzmqClient::imagePort()
 {
    return m_imagePort;
 }
 
 inline
-int milk0Client::shMemImName( const std::string & name )
+int milkzmqClient::shMemImName( const std::string & name )
 {
    m_shMemImName = name;
    
@@ -236,13 +236,13 @@ int milk0Client::shMemImName( const std::string & name )
 }
 
 inline
-std::string milk0Client::shMemImName()
+std::string milkzmqClient::shMemImName()
 {
    return m_shMemImName;
 }
 
 inline
-int milk0Client::localShMemImName( const std::string & name )
+int milkzmqClient::localShMemImName( const std::string & name )
 {
    m_localShMemImName = name;
    
@@ -250,19 +250,19 @@ int milk0Client::localShMemImName( const std::string & name )
 }
 
 inline
-std::string milk0Client::localShMemImName()
+std::string milkzmqClient::localShMemImName()
 {
    return m_localShMemImName;
 }
 
 inline
-void milk0Client::internal_imageThreadStart( milk0Client * mzc )
+void milkzmqClient::internal_imageThreadStart( milkzmqClient * mzc )
 {
    mzc->imageThreadExec();
 }
 
 inline
-int milk0Client::imageThreadStart()
+int milkzmqClient::imageThreadStart()
 {
    try
    {
@@ -289,13 +289,13 @@ int milk0Client::imageThreadStart()
 }
 
 inline
-void milk0Client::imageThreadExec()
+void milkzmqClient::imageThreadExec()
 {   
    //size_t type_size = 0; ///< The size, in bytes, of the image data type
 
    std::string srvstr = "tcp://" + m_address + ":" + std::to_string(m_imagePort);
    
-   std::cout << "milk0Client: Beginning receive at " << srvstr << "\n";
+   std::cout << "milkzmqClient: Beginning receive at " << srvstr << "\n";
    
    zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_SUB);
    subscriber.connect(srvstr);
@@ -375,17 +375,17 @@ void milk0Client::imageThreadExec()
    if(opened) ImageStreamIO_closeIm(&image);
    
    
-} // milk0Client::imageThreadExec()
+} // milkzmqClient::imageThreadExec()
 
 inline 
-void milk0Client::reportError( const std::string & msg,
+void milkzmqClient::reportError( const std::string & msg,
                                   const std::string & file,
                                   int line
                                 )
 {
-   milk0::reportError(m_argv0, msg, file, line);
+   milkzmq::reportError(m_argv0, msg, file, line);
 }
 
-} //namesapce milk0 
+} //namesapce milkzmq 
 
-#endif //milk0Client_hpp
+#endif //milkzmqClient_hpp
