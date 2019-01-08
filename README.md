@@ -32,6 +32,23 @@ $ wget https://download.opensuse.org/repositories/network:/messaging:/zeromq:/re
 $ apt-get install libzmq3-dev
 ```
 
+On CentOS 7:
+```
+$ sudo su
+$ yum-config-manager --add-repo https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/CentOS_7/network:messaging:zeromq:release-stable.repo
+$ yum install zeromq-devel
+```
+
+#### cppzmq
+We also need the c++ bindings for ZeroMQ from the cppzmq project.  It is a simple header-only library.  To get it, you can do this:
+```
+$ git clone https://github.com/zeromq/cppzmq.git
+$ cd cppzmq/
+$ sudo cp *.hpp /usr/local/include/
+```
+
+#### Testing install of ZMQ:
+
 To test your install get the examples:
 
 ```
