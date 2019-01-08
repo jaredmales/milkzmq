@@ -66,12 +66,12 @@ A simple `make` in this directory should build both server and client.
 
 Suppose you have a process writing images to `/tmp/image00.im.shm` on `myserver.myschool.edu`.  To run a server which will publish these images at 5 f.p.s. you would execute:
 ```
-milk0Server -f 5.0 image00
+milkzmqServer -f 5.0 image00
 ```
 
 Then on the remote machine you would execute
 ```
-milk0Client myserver.myschool.edu image00
+milkzmqClient myserver.myschool.edu image00
 ```
 Now on this remote machine an `ImageStreamIO` image will be available at `/tmp/imtest00.im.shm`, with updates at 5.0 Hz.
 
@@ -80,10 +80,10 @@ Several parameters can be set for each program.  The following shows the output 
 ### milk0Server
 
 ```
-$ milk0Server -h
-milk0Server:
+$ milkzmqServer -h
+milkzmqServer:
 
-usage: milk0Server [options] shm-name
+usage: milkzmqServer [options] shm-name
 
    shm-name is the root of the ImageStreamIO shared memory image file.
             If the full path is "/tmp/image00.im.shm" then shm-name=image00
@@ -97,12 +97,12 @@ options:
 
 ### milk0Client
 ```
-$ milk0Client -h
-milk0Client:
+$ milkzmqClient -h
+milkzmqClient:
 
-usage: ./milk0Client [options] remote-host shm-name
+usage: ./milkzmqClient [options] remote-host shm-name
 
-   remote-host is the address of the remote host where milk0Server is running.
+   remote-host is the address of the remote host where milkzmqServer is running.
 
    shm-name is the root of the ImageStreamIO shared memory image file.
             If the full path is "/tmp/image00.im.shm" then shm-name=image00
