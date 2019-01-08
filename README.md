@@ -1,4 +1,4 @@
-# milk0mq
+# milkzmq
 
 A ZeroMQ-based server and client for ImageStreamIO image streams.
 
