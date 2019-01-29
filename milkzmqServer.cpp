@@ -32,7 +32,7 @@
 
 std::string argv0;
 
-void sigHandler( int signum,
+void sigTermHandler( int signum,
                  siginfo_t *siginf,
                  void *ucont
                )
@@ -45,12 +45,25 @@ void sigHandler( int signum,
    milkzmq::milkzmqServer::m_timeToDie = true;
 }
 
+void sigSegvHandler( int signum,
+                 siginfo_t *siginf,
+                 void *ucont
+               )
+{
+   //Suppress those warnings . . .
+   static_cast<void>(signum);
+   static_cast<void>(siginf);
+   static_cast<void>(ucont);
+   
+   milkzmq::milkzmqServer::m_restart = true;
+}
+
 int setSigTermHandler()
 {
    struct sigaction act;
    sigset_t set;
 
-   act.sa_sigaction = sigHandler;
+   act.sa_sigaction = sigTermHandler;
    act.sa_flags = SA_SIGINFO;
    sigemptyset(&set);
    act.sa_mask = set;
@@ -73,6 +86,33 @@ int setSigTermHandler()
    if( sigaction(SIGINT, &act, 0) < 0 )
    {
       std::cerr << " (" << argv0 << "): error setting SIGINT handler: " << strerror(errno) << "\n";
+      return -1;
+   }
+
+   return 0;
+}
+
+int setSigSegvHandler()
+{
+   struct sigaction act;
+   sigset_t set;
+
+   act.sa_sigaction = sigSegvHandler;
+   act.sa_flags = SA_SIGINFO;
+   sigemptyset(&set);
+   act.sa_mask = set;
+
+   errno = 0;
+   if( sigaction(SIGSEGV, &act, 0) < 0 )
+   {
+      std::cerr << " (" << argv0 << "): error setting SIGSEGV handler: " << strerror(errno) << "\n";
+      return -1;
+   }
+
+   errno = 0;
+   if( sigaction(SIGBUS, &act, 0) < 0 )
+   {
+      std::cerr << " (" << argv0 << "): error setting SIGBUS handler: " << strerror(errno) << "\n";
       return -1;
    }
 

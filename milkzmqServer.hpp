@@ -205,6 +205,13 @@ public:
    /// Flag to control execution.  When true all threads will exit.
    static bool m_timeToDie;
    
+   /// Flag to indicate a restart of the image thread loop is needed.
+   /** This is intended to be set after a SIGTERM or SIGBUS is recieved, which tends
+     * to occur if the source of the images exits, causing the
+     * shared mem stream to go wonky.
+     */ 
+   static bool m_restart;
+   
    /** \name Error Handling
      * Errors are reported using a virtual function, so that custom handling can be implemented.
      *
@@ -218,6 +225,7 @@ public:
 };
 
 bool milkzmqServer::m_timeToDie = false;
+bool milkzmqServer::m_restart = false;
 
 inline
 milkzmqServer::milkzmqServer()
@@ -442,7 +450,9 @@ void milkzmqServer::imageThreadExec()
    while(!m_timeToDie)
    {
       opened = false;
-      while(!opened && !m_timeToDie)
+      m_restart = false; //Set this up front, since we're about to restart.
+      
+      while(!opened && !m_timeToDie && !m_restart)
       {
          if( ImageStreamIO_openIm(&image, m_shMemImName.c_str()) == 0)
          {
@@ -481,7 +491,7 @@ void milkzmqServer::imageThreadExec()
       double lastSend = get_curr_time();
       double delta = 0;
       
-      while(!m_timeToDie)
+      while(!m_timeToDie && !m_restart)
       {
          
          if(sem_trywait(sem) == 0)
@@ -512,6 +522,7 @@ void milkzmqServer::imageThreadExec()
             }
             lastCheck = get_curr_time();
 
+            if(m_timeToDie || m_restart) break; //Check for exit signals
          
             memset(msg, 0, 128);
             snprintf((char *) msg, 128, "%s", m_shMemImName.c_str());
@@ -521,6 +532,8 @@ void milkzmqServer::imageThreadExec()
             
             memcpy(msg + 128 + sizeof(uint8_t) + 2*sizeof(uint64_t), image.array.SI8 + curr_image*snx*sny*type_size, snx*sny*type_size);
                         
+            if(m_timeToDie || m_restart) break; //Check for exit signals
+            
             publisher.send(msg, msgSz);
             
             double ct = get_curr_time();
