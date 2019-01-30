@@ -230,13 +230,18 @@ bool milkzmqServer::m_restart = false;
 inline
 milkzmqServer::milkzmqServer()
 {
-   
    m_ZMQ_context = new zmq::context_t;
 }
 
 inline
 milkzmqServer::~milkzmqServer()
 {
+   m_timeToDie = true;
+   
+   if(m_imageThread.joinable()) m_imageThread.join();
+
+   if(m_metaThread.joinable()) m_metaThread.join();
+
    if(m_ZMQ_context) delete m_ZMQ_context;
 }
 
@@ -473,8 +478,7 @@ void milkzmqServer::imageThreadExec()
             milkzmq::sleep(1); //be patient
          }
       }
-      
-      
+      if(m_timeToDie || !opened) return;
     
       int curr_image;
       uint8_t atype;
@@ -561,8 +565,6 @@ void milkzmqServer::imageThreadExec()
       msg = nullptr;
    }
    
-   
-
    //One more check
    if(opened) ImageStreamIO_closeIm(&image);
    if(msg) free(msg);

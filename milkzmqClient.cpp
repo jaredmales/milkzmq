@@ -178,9 +178,11 @@ int main (int argc, char *argv[])
    mzc.shMemImName(shmem_key);
    mzc.localShMemImName(local_shmem_key);
    
+   setSigTermHandler();
+   
    mzc.imageThreadStart();
    
-   while(1) 
+   while(!milkzmq::milkzmqClient::m_timeToDie) 
    {
       milkzmq::sleep(1);
    }

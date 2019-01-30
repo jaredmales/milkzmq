@@ -177,13 +177,19 @@ bool milkzmqClient::m_timeToDie = false;
 inline
 milkzmqClient::milkzmqClient()
 {
-   
    m_ZMQ_context = new zmq::context_t(1);
 }
 
 inline
 milkzmqClient::~milkzmqClient()
 {
+   m_timeToDie = true;
+   
+   if(m_imageThread.joinable()) 
+   {
+      pthread_kill(m_imageThread.native_handle(), SIGTERM);
+      m_imageThread.join();
+   }
    if(m_ZMQ_context) delete m_ZMQ_context;
 }
 
@@ -298,8 +304,10 @@ void milkzmqClient::imageThreadExec()
    std::cout << "milkzmqClient: Beginning receive at " << srvstr << "\n";
    
    zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_SUB);
+   
+
    subscriber.connect(srvstr);
-      
+   
    char filter[128];
    memset(filter, 0, 128);
    snprintf(filter, 128, "%s", m_shMemImName.c_str());
@@ -328,7 +336,16 @@ void milkzmqClient::imageThreadExec()
    {
       zmq::message_t msg;
         
-      subscriber.recv(&msg);
+      try
+      {
+         subscriber.recv(&msg);
+      }
+      catch(...)
+      {
+         if(m_timeToDie) return; //This will be if signaled during shutdown
+         throw; //otherwise uh-oh
+      }
+
       char * raw_image= (char *) msg.data();
       
       new_atype = *( (uint8_t *) (raw_image + 128) );

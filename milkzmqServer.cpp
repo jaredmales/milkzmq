@@ -42,8 +42,6 @@ void sigTermHandler( int signum,
    static_cast<void>(siginf);
    static_cast<void>(ucont);
   
-   std::cerr << "SIGTERM received.\n";
- 
    milkzmq::milkzmqServer::m_timeToDie = true;
 }
 
@@ -57,7 +55,6 @@ void sigSegvHandler( int signum,
    static_cast<void>(siginf);
    static_cast<void>(ucont);
 
-   std::cerr << "SIGSEV or SIGBUS received.\n";   
    milkzmq::milkzmqServer::m_restart = true;
 }
 
