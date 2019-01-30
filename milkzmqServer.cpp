@@ -41,7 +41,9 @@ void sigTermHandler( int signum,
    static_cast<void>(signum);
    static_cast<void>(siginf);
    static_cast<void>(ucont);
-   
+  
+   std::cerr << "SIGTERM received.\n";
+ 
    milkzmq::milkzmqServer::m_timeToDie = true;
 }
 
@@ -54,7 +56,8 @@ void sigSegvHandler( int signum,
    static_cast<void>(signum);
    static_cast<void>(siginf);
    static_cast<void>(ucont);
-   
+
+   std::cerr << "SIGSEV or SIGBUS received.\n";   
    milkzmq::milkzmqServer::m_restart = true;
 }
 
@@ -230,10 +233,13 @@ int main( int argc,
    mzs.semaphoreNumber(semNum);
    mzs.fpsTgt(fpsTgt);
    mzs.usecSleep(usecSleep);
-   
+  
+   setSigTermHandler();
+   setSigSegvHandler();
+ 
    mzs.imageThreadStart();
    
-   while(1) 
+   while(!milkzmq::milkzmqServer::m_timeToDie) 
    {
       milkzmq::sleep(1);
    }
