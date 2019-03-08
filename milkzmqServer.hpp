@@ -469,7 +469,7 @@ void milkzmqServer::imageThreadExec()
             else
             {
                sem = image.semptr[m_sempahoreNumber];
-               type_size = ImageStreamIO_typesize(image.md[0].atype);
+               type_size = ImageStreamIO_typesize(image.md[0].datatype);
                opened = true;
             }
          }
@@ -482,13 +482,15 @@ void milkzmqServer::imageThreadExec()
     
       int curr_image;
       uint8_t atype;
-      size_t snx, sny, snz;
-      uint8_t last_atype = image.md[0].atype;
-      size_t last_snx = image.md[0].size[0];
-      size_t last_sny = image.md[0].size[1];
-      size_t last_snz = image.md[0].size[2];
+      uint32_t snx, sny, snz;
+      uint8_t last_atype = image.md[0].datatype;
+      uint32_t last_snx = image.md[0].size[0];
+      uint32_t last_sny = image.md[0].size[1];
+      uint32_t last_snz = image.md[0].size[2];
 
-      size_t msgSz = 128 + sizeof(uint8_t) + sizeof(uint64_t) + sizeof(uint64_t) + last_snx*last_sny*type_size;
+      
+      
+      size_t msgSz = imageOffset + last_snx*last_sny*type_size;
       msg = (uint8_t *) malloc(msgSz);
       
       double lastCheck = get_curr_time();
@@ -508,7 +510,7 @@ void milkzmqServer::imageThreadExec()
             }
             else curr_image = 0;
 
-            atype = image.md[0].atype;
+            atype = image.md[0].datatype;
             snx = image.md[0].size[0];
             sny = image.md[0].size[1];
             snz = image.md[0].size[2];
@@ -530,11 +532,14 @@ void milkzmqServer::imageThreadExec()
          
             memset(msg, 0, 128);
             snprintf((char *) msg, 128, "%s", m_shMemImName.c_str());
-            *((uint8_t *) (msg + 128)) = atype;
-            *((uint64_t *) (msg + 128 + sizeof(uint8_t))) = snx;
-            *((uint64_t *) (msg + 128 + sizeof(uint8_t) + sizeof(uint64_t)) ) = sny;
+            *((uint8_t *) (msg + typeOffset)) = atype;
+            *((uint32_t *) (msg + size0Offset)) = snx;
+            *((uint32_t *) (msg + size1Offset)) = sny;
+            *((uint64_t *) (msg + cnt0Offset)) = image.md[0].cnt0;
+            *((uint64_t *) (msg + tv_secOffset)) = image.md[0].atime.tv_sec;
+            *((uint64_t *) (msg + tv_nsecOffset)) = image.md[0].atime.tv_nsec;
             
-            memcpy(msg + 128 + sizeof(uint8_t) + 2*sizeof(uint64_t), image.array.SI8 + curr_image*snx*sny*type_size, snx*sny*type_size);
+            memcpy(msg + imageOffset, image.array.SI8 + curr_image*snx*sny*type_size, snx*sny*type_size);
                         
             if(m_timeToDie || m_restart) break; //Check for exit signals
             

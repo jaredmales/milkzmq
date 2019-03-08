@@ -348,9 +348,9 @@ void milkzmqClient::imageThreadExec()
 
       char * raw_image= (char *) msg.data();
       
-      new_atype = *( (uint8_t *) (raw_image + 128) );
-      new_nx = *( (uint64_t *) (raw_image + 128 + sizeof(uint8_t)));
-      new_ny = *( (uint64_t *) (raw_image + 128  + sizeof(uint8_t) + sizeof(uint64_t)));
+      new_atype = *( (uint8_t *) (raw_image + typeOffset) );
+      new_nx = *( (uint32_t *) (raw_image + size0Offset));
+      new_ny = *( (uint32_t *) (raw_image + size1Offset));
       
       if( nx != new_nx || ny != new_ny || atype != new_atype)
       {
@@ -376,17 +376,22 @@ void milkzmqClient::imageThreadExec()
       //This is not a rolling buffer.
       curr_image = 0;
       
-      size_t type_size = ImageStreamIO_typesize(image.md[0].atype);
+      size_t type_size = ImageStreamIO_typesize(image.md[0].datatype);
 
       image.md[0].write=1;
-      
-      memcpy(image.array.SI8 + curr_image*nx*ny*type_size, raw_image + 128 + sizeof(uint8_t) + 2*sizeof(uint64_t), nx*ny*type_size);
-      ImageStreamIO_sempost(&image,-1);
-        
-      image.md[0].write=0;
 
-      image.md[0].cnt0++;
+      image.md[0].cnt0 = *( (uint64_t *) (raw_image + cnt0Offset));
+      image.md[0].atime.tv_sec = *( (uint64_t *) (raw_image + tv_secOffset));
+      image.md[0].atime.tv_nsec = *( (uint64_t *) (raw_image + tv_nsecOffset));
+      
+      
+      memcpy(image.array.SI8 + curr_image*nx*ny*type_size, raw_image + imageOffset, nx*ny*type_size);
+      
+        
+
       image.md[0].cnt1=0;
+      image.md[0].write=0;
+      ImageStreamIO_sempost(&image,-1);
    }
 
    if(opened) ImageStreamIO_closeIm(&image);

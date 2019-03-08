@@ -36,6 +36,14 @@
 namespace milkzmq 
 {
 
+constexpr size_t typeOffset = 128;
+constexpr size_t size0Offset = typeOffset+sizeof(uint8_t);
+constexpr size_t size1Offset = size0Offset + sizeof(uint32_t);
+constexpr size_t cnt0Offset = size1Offset + sizeof(uint32_t);
+constexpr size_t tv_secOffset = cnt0Offset + sizeof(uint64_t);
+constexpr size_t tv_nsecOffset = tv_secOffset + sizeof(uint64_t);
+constexpr size_t imageOffset = tv_nsecOffset + sizeof(uint64_t);
+      
 /// Sleep for a specified period in seconds.
 inline
 void sleep( unsigned sec /**< [in] the number of seconds to sleep. */)

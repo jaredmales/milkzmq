@@ -20,7 +20,7 @@ CXXFLAGS += -std=c++14 $(OPTIMIZE)
 
 LDLIBS += -lzmq -lImageStreamIO -lpthread
 
-all: $(TARGET) $(HEADER)
+all: $(TARGET) $(HEADER) milkzmqUtils.hpp
 
 install: all
 	install -d $(BIN_PATH)
