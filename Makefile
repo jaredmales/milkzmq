@@ -5,7 +5,7 @@
 ######################################################
 
 #This will change for both client and server
-export BIN_PATH?=$(HOME)/bin
+export BIN_PATH=/usr/local/bin
 
 
 all:
