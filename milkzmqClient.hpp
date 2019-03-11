@@ -308,6 +308,7 @@ void milkzmqClient::imageThreadExec()
 
    subscriber.connect(srvstr);
    
+   std::cerr << "connected\n";
    char filter[128];
    memset(filter, 0, 128);
    snprintf(filter, 128, "%s", m_shMemImName.c_str());
