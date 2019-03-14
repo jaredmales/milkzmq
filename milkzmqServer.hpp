@@ -52,7 +52,7 @@ protected:
    int m_imagePort{5556}; ///< The port number to use for the image server.
    
    std::string m_shMemImName; ///< The name of the ImageStreamIO shared memory image
-   int m_sempahoreNumber {0}; ///< The number of the ImageStreamIO semaphore to monitor
+   int m_semaphoreNumber {0}; ///< The number of the ImageStreamIO semaphore to monitor
    int m_usecSleep {10}; ///< The number of microseconds to sleep on each loop.  Default 100.
    
    float m_fpsTgt{20}; ///< The max frames per second (f.p.s.) to transmit data.
@@ -132,7 +132,7 @@ public:
    
    /// Get the number of the semaphore to monitor
    /**
-     * \returns the semaphore number, current value of m_sempahoreNumber
+     * \returns the semaphore number, current value of m_semaphoreNumber
      */ 
    int semaphoreNumber();
    
@@ -290,14 +290,14 @@ std::string milkzmqServer::shMemImName()
 inline
 int milkzmqServer::semaphoreNumber( const int & number )
 {
-   m_sempahoreNumber = number;
+   m_semaphoreNumber = number;
    return 0;
 }
 
 inline
 int milkzmqServer::semaphoreNumber()
 {
-   return m_sempahoreNumber;
+   return m_semaphoreNumber;
 }
    
 inline
@@ -461,14 +461,14 @@ void milkzmqServer::imageThreadExec()
       {
          if( ImageStreamIO_openIm(&image, m_shMemImName.c_str()) == 0)
          {
-            if(image.md[0].sem <= m_sempahoreNumber) 
+            if(image.md[0].sem <= m_semaphoreNumber) 
             {
                ImageStreamIO_closeIm(&image);
                milkzmq::sleep(1); //We just need to wait for the server process to finish startup.
             }
             else
             {
-               sem = image.semptr[m_sempahoreNumber];
+               sem = image.semptr[m_semaphoreNumber];
                type_size = ImageStreamIO_typesize(image.md[0].datatype);
                opened = true;
             }
