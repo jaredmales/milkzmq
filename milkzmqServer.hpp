@@ -52,10 +52,9 @@ protected:
    int m_imagePort{5556}; ///< The port number to use for the image server.
    
    std::string m_shMemImName; ///< The name of the ImageStreamIO shared memory image
-   int m_semaphoreNumber {0}; ///< The number of the ImageStreamIO semaphore to monitor
-   int m_usecSleep {10}; ///< The number of microseconds to sleep on each loop.  Default 100.
+   int m_usecSleep {100}; ///< The number of microseconds to sleep on each loop.  Default 100.
    
-   float m_fpsTgt{20}; ///< The max frames per second (f.p.s.) to transmit data.
+   float m_fpsTgt{10}; ///< The max frames per second (f.p.s.) to transmit data.
    
    float m_fpsGain{0.1}; ///< Integrator gain on the fps trigger delta.
 
@@ -66,7 +65,6 @@ protected:
      *@{
      */
    
-   std::thread m_metaThread;  ///< Thread for handling the metadata requests
    std::thread m_imageThread; ///< Thread for publishing image slice updates
 
    zmq::context_t * m_ZMQ_context {nullptr}; ///< The ZeroMQ context, allocated on construction.
@@ -122,20 +120,7 @@ public:
      * \returns the name of the shared memory image, the current value of m_shMemImName.
      */ 
    std::string shMemImName();
-   
-   /// Set the semaphore number to monitor
-   /**
-     * \returns 0 on success
-     * \returns -1 on error
-     */ 
-   int semaphoreNumber( const int & number /**< [in] the semaphore number to monitor*/);
-   
-   /// Get the number of the semaphore to monitor
-   /**
-     * \returns the semaphore number, current value of m_semaphoreNumber
-     */ 
-   int semaphoreNumber();
-   
+      
    /// Set the time to sleep between semaphore checks.
    /** Use this to tune the responsiveness vs. cpu use.
      * 
@@ -179,17 +164,6 @@ public:
      */ 
    float fpsGain();
    
-private:
-   ///Thread starter, called by metaThreadStart on thread construction.  Calls metaThreadExec.
-   static void internal_metaThreadStart( milkzmqServer * mzs /**< [in] a pointer to a milkzmqServer instance (normally this) */);
-
-public:
-   /// Start the metadata thread.
-   int metaThreadStart();
-
-   /// Execute the metadata thread.
-   void metaThreadExec();
-
 
 private:
    ///Thread starter, called by imageThreadStart on thread construction.  Calls imageThreadExec.
@@ -240,8 +214,6 @@ milkzmqServer::~milkzmqServer()
    
    if(m_imageThread.joinable()) m_imageThread.join();
 
-   if(m_metaThread.joinable()) m_metaThread.join();
-
    if(m_ZMQ_context) delete m_ZMQ_context;
 }
 
@@ -288,19 +260,6 @@ std::string milkzmqServer::shMemImName()
 }
 
 inline
-int milkzmqServer::semaphoreNumber( const int & number )
-{
-   m_semaphoreNumber = number;
-   return 0;
-}
-
-inline
-int milkzmqServer::semaphoreNumber()
-{
-   return m_semaphoreNumber;
-}
-   
-inline
 int milkzmqServer::usecSleep( const int & usec )
 {
    m_usecSleep = usec;
@@ -340,66 +299,6 @@ float milkzmqServer::fpsGain()
 }
 
 inline
-void milkzmqServer::internal_metaThreadStart( milkzmqServer * mzs )
-{
-   mzs->metaThreadExec();
-}
-
-inline
-int milkzmqServer::metaThreadStart()
-{
-   try
-   {
-      m_metaThread = std::thread( internal_metaThreadStart, this);
-   }
-   catch( const std::exception & e )
-   {
-      std::cerr << "milkzmqServer: exception in meta thread startup.\n";
-      std::cerr << "  " <<  e.what() << "\n";
-      std::cerr << "  at " __FILE__ << " line " << __LINE__ << "\n"; 
-      return -1;
-   }
-   catch( ... )
-   {
-      std::cerr << "milkzmqServer: unknown exception in meta thread startup.\n";
-      std::cerr << "  at " __FILE__ << " line " << __LINE__ << "\n"; 
-      return -1;
-   }
-   
-   if(!m_metaThread.joinable())
-   {
-      std::cerr << "milkzmqServer: meta thread did not start.\n";
-      std::cerr << "  at " __FILE__ << " line " << __LINE__ << "\n";
-      return -1;
-   }
-   
-   return 0;
-}
-
-inline
-void milkzmqServer::metaThreadExec()
-{
-   zmq::socket_t socket (*m_ZMQ_context, ZMQ_REP);
-   socket.bind ("tcp://*:5555");
-
-   while (true) 
-   {
-      zmq::message_t request;
-
-      //  Wait for next request from client
-      socket.recv (&request);
-      std::cout << "Received Hello" << std::endl;
-
-      //  Send reply back to client
-      zmq::message_t reply (5);
-      memcpy (reply.data (), "World", 5);
-      socket.send (reply);
-   }
-    
-}
-
-
-inline
 void milkzmqServer::internal_imageThreadStart( milkzmqServer * mzs )
 {
    mzs->imageThreadExec();
@@ -432,6 +331,15 @@ int milkzmqServer::imageThreadStart()
    return 0;
 }
 
+errno_t isio_err_to_ignore = 0;
+errno_t new_printError( const char *file, const char *func, int line, errno_t code, char *errmessage )
+{
+   if(code == isio_err_to_ignore) return IMAGESTREAMIO_SUCCESS;
+   
+   std::cerr << "ImageStreamIO Error:\n\tFile: " << file << "\n\tLine: " << line << "\n\tFunc: " << func << "\n\tMsg:  " << errmessage << std::endl; 
+   return IMAGESTREAMIO_SUCCESS;
+}
+
 inline
 void milkzmqServer::imageThreadExec()
 {   
@@ -439,11 +347,11 @@ void milkzmqServer::imageThreadExec()
 
    size_t type_size = 0; ///< The size, in bytes, of the image data type
 
-   sem_t * sem {nullptr}; ///< The semaphore to monitor for new image data
-
+   ImageStreamIO_set_printError(new_printError);
+   
    std::string srvstr = "tcp://*:" + std::to_string(m_imagePort);
    
-   std::cout << "milkzmqServer: Beginning service at " << srvstr << "\n";
+   std::cerr << "milkzmqServer: Beginning service at " << srvstr << "\n";
    
    zmq::socket_t publisher (*m_ZMQ_context, ZMQ_PUB);
    publisher.bind(srvstr);
@@ -461,25 +369,29 @@ void milkzmqServer::imageThreadExec()
       {
          if( ImageStreamIO_openIm(&image, m_shMemImName.c_str()) == 0)
          {
-            if(image.md[0].sem <= m_semaphoreNumber) 
+            if(image.md[0].sem <= 0) 
             {
                ImageStreamIO_closeIm(&image);
                milkzmq::sleep(1); //We just need to wait for the server process to finish startup.
             }
             else
             {
-               sem = image.semptr[m_semaphoreNumber];
                type_size = ImageStreamIO_typesize(image.md[0].datatype);
                opened = true;
             }
          }
          else
          {
+            isio_err_to_ignore = IMAGESTREAMIO_FILEOPEN;
             milkzmq::sleep(1); //be patient
          }
       }
+      isio_err_to_ignore = 0;
+      
       if(m_timeToDie || !opened) return;
     
+      std::cerr << "\nConnected to " << m_shMemImName << "\n";
+      
       int curr_image;
       uint8_t atype;
       uint32_t snx, sny, snz;
@@ -497,15 +409,16 @@ void milkzmqServer::imageThreadExec()
       double lastSend = get_curr_time();
       double delta = 0;
       
+      uint64_t lastCnt0 = -1;
+      
       while(!m_timeToDie && !m_restart)
       {
-         
-         if(sem_trywait(sem) == 0)
+         uint64_t cnt0 = image.md[0].cnt0;
+         if(cnt0 != lastCnt0)
          {
-            
             if(image.md[0].size[2] > 0) ///\todo change to naxis?
             {
-               curr_image = image.md[0].cnt1 - 1;
+               curr_image = image.md[0].cnt1;
                if(curr_image < 0) curr_image = image.md[0].size[2] - 1;
             }
             else curr_image = 0;
@@ -521,12 +434,13 @@ void milkzmqServer::imageThreadExec()
             }
          
             //Do a wait for max fps here.
-            if( get_curr_time() - lastCheck < 1.0/m_fpsTgt-delta) 
+            double currtime = get_curr_time();
+            if( currtime - lastCheck < 1.0/m_fpsTgt-delta) 
             {
                milkzmq::microsleep(m_usecSleep);
                continue;
             }
-            lastCheck = get_curr_time();
+            lastCheck = currtime;
 
             if(m_timeToDie || m_restart) break; //Check for exit signals
          
@@ -548,7 +462,7 @@ void milkzmqServer::imageThreadExec()
             double ct = get_curr_time();
             delta += m_fpsGain * (ct-lastSend - 1.0/m_fpsTgt);
             lastSend = ct;
-            
+            lastCnt0 = cnt0;
          }
          else
          {

@@ -133,8 +133,7 @@ void usage( const char * msg = 0 )
    std::cerr << "    -h    print this message and exit.\n";
    std::cerr << "    -p    specify the port number of the server [default = 5556].\n";
    std::cerr << "    -u    specify the loop sleep time in usecs [default = 100].\n";
-   std::cerr << "    -f    specify the F.P.S. target [default = 30.0].\n";
-   std::cerr << "    -s    specify the semaphore number [default=0].\n";
+   std::cerr << "    -f    specify the F.P.S. target [default = 10.0].\n";
    
 }
 
@@ -145,9 +144,8 @@ int main( int argc,
    
    int port = 5556;
    int usecSleep = 100;
-   float fpsTgt = 30.0;
-   int semNum = 0;
-
+   float fpsTgt = 10.0;
+   
    bool help = false;
 
    argv0 = argv[0];
@@ -155,7 +153,7 @@ int main( int argc,
    opterr = 0;
    
    int c;
-   while ((c = getopt (argc, argv, "hp:u:f:s:")) != -1)
+   while ((c = getopt (argc, argv, "hp:u:f:")) != -1)
    {
       if(c == 'h')
       {
@@ -184,9 +182,6 @@ int main( int argc,
          case 'f':
            fpsTgt = atof(optarg);
            break;
-         case 's':
-            semNum = atoi(optarg);
-            break;
          case '?':
             char errm[256];
             if (optopt == 'p' || optopt == 'u' || optopt == 'f' || optopt == 's')
@@ -220,14 +215,11 @@ int main( int argc,
    
    std::string shmem_key = argv[optind];
    
-   
-   
    milkzmq::milkzmqServer mzs;
    
    mzs.argv0(argv0);
    mzs.imagePort(port);
    mzs.shMemImName(shmem_key);
-   mzs.semaphoreNumber(semNum);
    mzs.fpsTgt(fpsTgt);
    mzs.usecSleep(usecSleep);
   
