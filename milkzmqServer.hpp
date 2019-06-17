@@ -37,7 +37,7 @@
 namespace milkzmq 
 {
 
-
+///\todo need to handle errors/exceptions from zmq API
 class milkzmqServer
 {
 protected:
@@ -65,8 +65,24 @@ protected:
      *@{
      */
    
-   std::thread m_imageThread; ///< Thread for publishing image slice updates
+   std::thread m_serverThread;
+   
+   ///Structure to manage the image threads, including startup.
+   struct s_imageThread
+   {
+      std::thread * m_thread {nullptr}; ///< Thread for publishing image slice updates.  A pointer to allow copying, but must be deleted in d'tor of parent.
+      milkzmqServer * m_mzs;            ///< a pointer to a milkzmqServer instance (normally this)
+      std::string m_imageName;          ///< the name of the image to serve from this thread
+      
+      ///C'tor to create the thread object
+      s_imageThread()
+      {
+         m_thread = new std::thread;
+      }      
+   };
 
+   std::vector<s_imageThread> m_imageThreads; ///< The image threads, one per shared memory streamm being served.
+   
    zmq::context_t * m_ZMQ_context {nullptr}; ///< The ZeroMQ context, allocated on construction.
 
    ///@}
@@ -107,19 +123,26 @@ public:
      */ 
    int imagePort();
    
-   /// Set the name of the ImageStreamIO shared memory image
+   /// Add the name of the ImageStreamIO shared memory image to the list
    /** This is just the root.  E.g. for a complete path of '/tmp/image00.im.shm' the argument should be "image00".
+     * This extends the m_imageThreads vector.
      * 
      * \returns 0 on success
      * \returns -1 on error
      */ 
    int shMemImName( const std::string & name /**< [in] the  new name of the shared memory image.*/);
    
+   /// Get the number of shared memory images being monitored.
+   /**
+     * \returns the name of the result of m_imageThreads.size().
+     */
+   size_t numImages();
+   
    /// Get the name of the shared memory image.
    /**
      * \returns the name of the shared memory image, the current value of m_shMemImName.
      */ 
-   std::string shMemImName();
+   std::string shMemImName(size_t n);
       
    /// Set the time to sleep between semaphore checks.
    /** Use this to tune the responsiveness vs. cpu use.
@@ -166,21 +189,35 @@ public:
    
 
 private:
-   ///Thread starter, called by imageThreadStart on thread construction.  Calls imageThreadExec.
-   static void internal_imageThreadStart( milkzmqServer * mzs /**< [in] a pointer to a milkzmqServer instance (normally this) */);
+   
+   ///Server thread starter, called by serverThreadStart on thread construction.  Calls serverThreadExec.
+   static void internal_serverThreadStart( milkzmqServer * mzs /**< [in] a pointer to a milkzmqServer instance, usually this */);
+
+public:
+   /// Start the server thread.
+   int serverThreadStart();
+
+   /// Execute the image thread.
+   void serverThreadExec();
+   
+   
+private:
+   
+   ///Image thread starter, called by imageThreadStart on thread construction.  Calls imageThreadExec.
+   static void internal_imageThreadStart( s_imageThread* mit /**< [in] a pointer to an s_imageThread structure */);
 
 public:
    /// Start the image thread.
-   int imageThreadStart();
+   int imageThreadStart(size_t thno);
 
    /// Execute the image thread.
-   void imageThreadExec();
+   void imageThreadExec(const std::string & imageName);
 
    /// Flag to control execution.  When true all threads will exit.
    static bool m_timeToDie;
    
    /// Flag to indicate a restart of the image thread loop is needed.
-   /** This is intended to be set after a SIGTERM or SIGBUS is recieved, which tends
+   /** This is intended to be set after a SIGSEGV or SIGBUS is recieved, which tends
      * to occur if the source of the images exits, causing the
      * shared mem stream to go wonky.
      */ 
@@ -211,9 +248,21 @@ inline
 milkzmqServer::~milkzmqServer()
 {
    m_timeToDie = true;
-   
-   if(m_imageThread.joinable()) m_imageThread.join();
 
+   for(size_t n = 0; n < m_imageThreads.size(); ++n)
+   {
+      if(m_imageThreads[n].m_thread != nullptr)
+      {
+         if(m_imageThreads[n].m_thread->joinable()) m_imageThreads[n].m_thread->join();
+         delete m_imageThreads[n].m_thread;
+         m_imageThreads[n].m_thread = nullptr;
+      }
+   }
+   
+   
+   pthread_kill(m_serverThread.native_handle(), SIGINT);
+   if(m_serverThread.joinable()) m_serverThread.join();
+   
    if(m_ZMQ_context) delete m_ZMQ_context;
 }
 
@@ -248,15 +297,26 @@ int milkzmqServer::imagePort()
 inline
 int milkzmqServer::shMemImName( const std::string & name )
 {
-   m_shMemImName = name;
+   s_imageThread nt;
+   
+   nt.m_mzs = this;
+   nt.m_imageName = name;
+   
+   m_imageThreads.push_back(nt);
    
    return 0;
 }
 
 inline
-std::string milkzmqServer::shMemImName()
+size_t milkzmqServer::numImages()
 {
-   return m_shMemImName;
+   return m_imageThreads.size();
+}
+
+inline
+std::string milkzmqServer::shMemImName(size_t n)
+{
+   return m_imageThreads[n].m_imageName;
 }
 
 inline
@@ -299,17 +359,76 @@ float milkzmqServer::fpsGain()
 }
 
 inline
-void milkzmqServer::internal_imageThreadStart( milkzmqServer * mzs )
+void milkzmqServer::internal_serverThreadStart( milkzmqServer * mzs )
 {
-   mzs->imageThreadExec();
+   mzs->serverThreadExec();
 }
 
 inline
-int milkzmqServer::imageThreadStart()
+int milkzmqServer::serverThreadStart()
 {
    try
    {
-      m_imageThread = std::thread( internal_imageThreadStart, this);
+      m_serverThread = std::thread( internal_serverThreadStart, this);
+   }
+   catch( const std::exception & e )
+   {
+      reportError(std::string("exception in server thread startup: ") +e.what(), __FILE__, __LINE__);
+      return -1;
+   }
+   catch( ... )
+   {
+      reportError("unknown exception in server thread startup", __FILE__, __LINE__);
+      return -1;
+   }
+   
+   if(!m_serverThread.joinable())
+   {
+      reportError("server thread did not start", __FILE__, __LINE__);
+      return -1;
+   }
+   
+   return 0;
+}
+
+inline
+void milkzmqServer::serverThreadExec()
+{   
+   std::string srvstr = "tcp://*:" + std::to_string(m_imagePort);
+   
+   std::cerr << "milkzmqServer: Beginning service at " << srvstr << "\n";
+   
+   zmq::socket_t publisher (*m_ZMQ_context, ZMQ_XPUB);
+   publisher.bind(srvstr);
+   
+   
+   zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_XSUB);
+   //subscriber.connect("tcp://localhost:6000");
+   for(size_t n=0; n< m_imageThreads.size(); ++n)
+   {
+      subscriber.connect("inproc://" + m_imageThreads[n].m_imageName);
+   }
+
+   while(!m_timeToDie) //loop on timeToDie in case this gets interrupted by SIGSEGV/SIGBUS
+   {
+      //This runs until signaled.
+      zmq_proxy (subscriber, publisher, 0); 
+   }
+   
+} // milkzmqServer::serverThreadExec()
+
+inline
+void milkzmqServer::internal_imageThreadStart( s_imageThread * mit )
+{
+   mit->m_mzs->imageThreadExec(mit->m_imageName);
+}
+
+inline
+int milkzmqServer::imageThreadStart(size_t thno)
+{
+   try
+   {
+      *m_imageThreads[thno].m_thread = std::thread( internal_imageThreadStart, &m_imageThreads[thno]);
    }
    catch( const std::exception & e )
    {
@@ -322,7 +441,7 @@ int milkzmqServer::imageThreadStart()
       return -1;
    }
    
-   if(!m_imageThread.joinable())
+   if(!m_imageThreads[thno].m_thread->joinable())
    {
       reportError("image thread did not start", __FILE__, __LINE__);
       return -1;
@@ -341,7 +460,7 @@ errno_t new_printError( const char *file, const char *func, int line, errno_t co
 }
 
 inline
-void milkzmqServer::imageThreadExec()
+void milkzmqServer::imageThreadExec(const std::string & imageName)
 {   
    IMAGE image;
 
@@ -349,9 +468,10 @@ void milkzmqServer::imageThreadExec()
 
    ImageStreamIO_set_printError(new_printError);
    
-   std::string srvstr = "tcp://*:" + std::to_string(m_imagePort);
+   //std::string srvstr = "tcp://*:6000";
+   std::string srvstr = "inproc://" + imageName;
    
-   std::cerr << "milkzmqServer: Beginning service at " << srvstr << "\n";
+//   std::cerr << "milkzmqServer: Beginning service at " << srvstr << "\n";
    
    zmq::socket_t publisher (*m_ZMQ_context, ZMQ_PUB);
    publisher.bind(srvstr);
@@ -367,7 +487,7 @@ void milkzmqServer::imageThreadExec()
       
       while(!opened && !m_timeToDie && !m_restart)
       {
-         if( ImageStreamIO_openIm(&image, m_shMemImName.c_str()) == 0)
+         if( ImageStreamIO_openIm(&image, imageName.c_str()) == 0)
          {
             if(image.md[0].sem <= 0) 
             {
@@ -390,7 +510,7 @@ void milkzmqServer::imageThreadExec()
       
       if(m_timeToDie || !opened) return;
     
-      std::cerr << "\nConnected to " << m_shMemImName << "\n";
+      std::cerr << "\nConnected to " << imageName << "\n";
       
       int curr_image;
       uint8_t atype;
@@ -445,7 +565,7 @@ void milkzmqServer::imageThreadExec()
             if(m_timeToDie || m_restart) break; //Check for exit signals
          
             memset(msg, 0, 128);
-            snprintf((char *) msg, 128, "%s", m_shMemImName.c_str());
+            snprintf((char *) msg, 128, "%s", imageName.c_str());
             *((uint8_t *) (msg + typeOffset)) = atype;
             *((uint32_t *) (msg + size0Offset)) = snx;
             *((uint32_t *) (msg + size1Offset)) = sny;

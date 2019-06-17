@@ -125,14 +125,15 @@ void usage( const char * msg = 0 )
    
    if(msg) std::cerr << "error: " << msg << "\n\n";
    
-   std::cerr << "usage: " << argv0 << " [options] shm-name\n\n";
+   std::cerr << "usage: " << argv0 << " [options] shm-name [shm-name]\n\n";
    
-   std::cerr << "   shm-name is the root of the ImageStreamIO shared memory image file.\n";
+   std::cerr << "   shm-name is the root of the ImageStreamIO shared memory image file(s).\n";
    std::cerr << "            If the full path is \"/tmp/image00.im.shm\" then shm-name=image00\n";
+   std::cerr << "            At least one must be specified.\n";
    std::cerr << "options:\n";
    std::cerr << "    -h    print this message and exit.\n";
    std::cerr << "    -p    specify the port number of the server [default = 5556].\n";
-   std::cerr << "    -u    specify the loop sleep time in usecs [default = 100].\n";
+   std::cerr << "    -u    specify the loop sleep time in usecs [default = 1000].\n";
    std::cerr << "    -f    specify the F.P.S. target [default = 10.0].\n";
    
 }
@@ -143,7 +144,7 @@ int main( int argc,
 {
    
    int port = 5556;
-   int usecSleep = 100;
+   int usecSleep = 1000;
    float fpsTgt = 10.0;
    
    bool help = false;
@@ -207,26 +208,35 @@ int main( int argc,
    }
 
 
-   if( optind != argc-1)
+   if( optind > argc-1)
    {
-      usage("must specify shared memory file name as only non-option argument.");
+      usage("must specify at least one shared memory file name as only non-option argument.");
       return -1;
    }
    
-   std::string shmem_key = argv[optind];
    
    milkzmq::milkzmqServer mzs;
    
    mzs.argv0(argv0);
    mzs.imagePort(port);
-   mzs.shMemImName(shmem_key);
+   
+   for(int n=0; n < argc - optind; ++n)
+   {
+      mzs.shMemImName(argv[optind+n]);
+   }
+   
    mzs.fpsTgt(fpsTgt);
    mzs.usecSleep(usecSleep);
   
    setSigTermHandler();
    setSigSegvHandler();
  
-   mzs.imageThreadStart();
+   mzs.serverThreadStart();
+
+   for(size_t n=0; n < argc-optind; ++n)
+   {
+      mzs.imageThreadStart(n);
+   }
    
    while(!milkzmq::milkzmqServer::m_timeToDie) 
    {
