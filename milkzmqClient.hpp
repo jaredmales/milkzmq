@@ -312,7 +312,7 @@ void milkzmqClient::imageThreadExec()
    char filter[128];
    memset(filter, 0, 128);
    snprintf(filter, 128, "%s", m_shMemImName.c_str());
-   subscriber.setsockopt(ZMQ_SUBSCRIBE, filter, strlen (filter));
+   subscriber.setsockopt(ZMQ_SUBSCRIBE, filter, sizeof(filter));
    
    
    std::string shMemImName;
