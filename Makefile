@@ -6,7 +6,7 @@
 
 #This will change for both client and server
 export BIN_PATH=/usr/local/bin
-
+export INC_PATH=/usr/local/include
 
 all:
 	$(MAKE) -f makefile.server all

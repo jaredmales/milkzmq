@@ -5,7 +5,7 @@
 ######################################################
 
 BIN_PATH?=$(HOME)/bin
-
+INC_PATH?=$(HOME)/include
 
 ######################################################
 
@@ -25,7 +25,9 @@ all: $(TARGET) $(HEADER)
 install: all
 	install -d $(BIN_PATH)
 	install $(TARGET) $(BIN_PATH)
-
+	install -d $(INC_PATH)
+	cp milkzmqClient.hpp $(INC_PATH)
+	
 .PHONY: clean
 clean:
 	rm -f $(TARGET)

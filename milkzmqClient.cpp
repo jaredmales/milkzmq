@@ -92,17 +92,48 @@ void usage( const char * msg = 0 )
    std::cerr << "options:\n";
    std::cerr << "    -h    print this message and exit.\n";
    std::cerr << "    -p    specify the port number of the server [default = 5556].\n";
-   std::cerr << "    -l    specify the local shared memory file name [default is same as shm-name].\n";
 
    return;
 }
 
+int parseName( std::string & remName,
+               std::string & locName,
+               const std::string & name
+             )
+{
+   size_t slash = name.find("/");
+   
+   if(slash == std::string::npos)
+   {
+      remName = name;
+      locName = "";
+      return 0;
+   }
+   
+   if(slash == 0)
+   {
+      std::cerr << "invalid name specification (no remote): " << name << "\n";
+      remName = "";
+      locName = "";
+      return -1;
+   }
+   
+   remName = name.substr(0, slash);
+   
+   if(slash > name.size()-1)
+   {
+      locName = "";
+      return 0;
+   }
+   
+   locName = name.substr(slash+1);
+   
+   return 0;
+}
 
 int main (int argc, char *argv[])
 {
-
    int port = 5556;
-   std::string local_shmem_key;   
    bool help = false;
 
    argv0 = argv[0];
@@ -110,7 +141,7 @@ int main (int argc, char *argv[])
    opterr = 0;
    
    int c;
-   while ((c = getopt (argc, argv, "hp:l:")) != -1)
+   while ((c = getopt (argc, argv, "hp:")) != -1)
    {
       if(c == 'h')
       {
@@ -132,9 +163,6 @@ int main (int argc, char *argv[])
       {
          case 'p':
             port = atoi(optarg);
-            break;
-         case 'l':
-            local_shmem_key = std::string(optarg);
             break;
          case '?':
             char errm[256];
@@ -175,12 +203,28 @@ int main (int argc, char *argv[])
    mzc.argv0(argv0);
    mzc.address(remote_address);
    mzc.imagePort(port);
-   mzc.shMemImName(shmem_key);
-   mzc.localShMemImName(local_shmem_key);
+   
+   for(int n=0; n < argc - optind; ++n)
+   {
+      std::string remName, locName;
+      
+      if(parseName( remName, locName, argv[optind+n]) < 0)
+      {
+         usage();
+         return -1;
+      }
+      
+      mzc.shMemImName(remName, locName);
+   }
+   
+   
    
    setSigTermHandler();
    
-   mzc.imageThreadStart();
+   for(size_t n=0; n < argc-optind; ++n)
+   {
+      mzc.imageThreadStart(n);
+   }
    
    while(!milkzmq::milkzmqClient::m_timeToDie) 
    {

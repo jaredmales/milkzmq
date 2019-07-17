@@ -208,10 +208,10 @@ private:
 
 public:
    /// Start the image thread.
-   int imageThreadStart(size_t thno);
+   int imageThreadStart(size_t thno /**< [in] the thread to start */);
 
    /// Execute the image thread.
-   void imageThreadExec(const std::string & imageName);
+   void imageThreadExec(const std::string & imageName /**< [in] the name of the image stream to monitor and publish*/ );
 
    /// Flag to control execution.  When true all threads will exit.
    static bool m_timeToDie;
