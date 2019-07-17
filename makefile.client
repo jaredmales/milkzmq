@@ -27,6 +27,7 @@ install: all
 	install $(TARGET) $(BIN_PATH)
 	install -d $(INC_PATH)
 	cp milkzmqClient.hpp $(INC_PATH)
+	cp milkzmqUtils.hpp $(INC_PATH)
 	
 .PHONY: clean
 clean:
