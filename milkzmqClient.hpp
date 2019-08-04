@@ -182,6 +182,9 @@ public:
    /// Flag to control execution.  When true all threads will exit.
    static bool m_timeToDie;
    
+   /// Signal the image thread to kill it.
+   int imageThreadKill( size_t thno /**< [in] the thread to kill */ );
+   
    /** \name Error Handling
      * Errors are reported using a virtual function, so that custom handling can be implemented.
      *
@@ -263,7 +266,7 @@ int milkzmqClient::imagePort()
 inline
 int milkzmqClient::shMemImName( const std::string & name )
 {   
-   return shMemImName(name, "");
+   return shMemImName(name, name);
 }
 
 inline
@@ -344,7 +347,6 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
    
    zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_SUB);
    
-
    subscriber.connect(srvstr);
    
    std::cerr << "connected\n";
@@ -353,7 +355,6 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
 
    snprintf(filter, 128, "%s", imageName.c_str());
    subscriber.setsockopt(ZMQ_SUBSCRIBE, filter, strlen (filter));
-   
    
    std::string shMemImName;
    if(localImageName == "") shMemImName = imageName;
@@ -379,11 +380,11 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
         
       try
       {
-         subscriber.recv(msg);
+         subscriber.recv(&msg);
       }
       catch(...)
       {
-         if(m_timeToDie) return; //This will be if signaled during shutdown
+         if(m_timeToDie) break; //This will be if signaled during shutdown
          throw; //otherwise uh-oh
       }
 
@@ -440,6 +441,13 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
    
 } // milkzmqClient::imageThreadExec()
 
+inline
+int milkzmqClient::imageThreadKill(size_t thno)
+{
+   pthread_kill(m_imageThreads[thno].m_thread->native_handle(), SIGTERM);
+   return 0;
+}
+      
 inline 
 void milkzmqClient::reportError( const std::string & msg,
                                   const std::string & file,

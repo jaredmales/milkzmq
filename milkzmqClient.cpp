@@ -231,6 +231,11 @@ int main (int argc, char *argv[])
       milkzmq::sleep(1);
    }
    
+   for(size_t n=0; n < argc-optind; ++n)
+   {
+      mzc.imageThreadKill(n);
+   }
+   
 
    return 0;
 }
