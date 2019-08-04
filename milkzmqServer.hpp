@@ -52,6 +52,7 @@ protected:
    int m_imagePort{5556}; ///< The port number to use for the image server.
    
    std::string m_shMemImName; ///< The name of the ImageStreamIO shared memory image
+   
    int m_usecSleep {100}; ///< The number of microseconds to sleep on each loop.  Default 100.
    
    float m_fpsTgt{10}; ///< The max frames per second (f.p.s.) to transmit data.
