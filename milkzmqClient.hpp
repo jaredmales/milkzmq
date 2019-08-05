@@ -380,7 +380,7 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
         
       try
       {
-         #if(ZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
+         #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
             subscriber.recv(msg);
          #else
             subscriber.recv(&msg); 
