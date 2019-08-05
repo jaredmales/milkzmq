@@ -242,4 +242,9 @@ int main( int argc,
    {
       milkzmq::sleep(1);
    }
+   
+   for(size_t n=0; n < argc-optind; ++n)
+   {
+      mzs.imageThreadKill(n);
+   }
 }

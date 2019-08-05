@@ -217,6 +217,9 @@ public:
    /// Flag to control execution.  When true all threads will exit.
    static bool m_timeToDie;
    
+   /// Signal the image thread to kill it.
+   int imageThreadKill( size_t thno /**< [in] the thread to kill */ );
+   
    /// Flag to indicate a restart of the image thread loop is needed.
    /** This is intended to be set after a SIGSEGV or SIGBUS is recieved, which tends
      * to occur if the source of the images exits, causing the
@@ -448,6 +451,13 @@ int milkzmqServer::imageThreadStart(size_t thno)
       return -1;
    }
    
+   return 0;
+}
+
+inline
+int milkzmqServer::imageThreadKill(size_t thno)
+{
+   pthread_kill(m_imageThreads[thno].m_thread->native_handle(), SIGTERM);
    return 0;
 }
 
