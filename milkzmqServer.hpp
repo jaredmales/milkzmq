@@ -201,6 +201,8 @@ public:
    /// Execute the image thread.
    void serverThreadExec();
    
+   /// Signal the server thread to kill it.
+   int serverThreadKill( );
    
 private:
    
@@ -420,6 +422,13 @@ void milkzmqServer::serverThreadExec()
    }
    
 } // milkzmqServer::serverThreadExec()
+
+inline
+int milkzmqServer::serverThreadKill()
+{
+   pthread_kill(m_serverThread.native_handle(), SIGTERM);
+   return 0;
+}
 
 inline
 void milkzmqServer::internal_imageThreadStart( s_imageThread * mit )
