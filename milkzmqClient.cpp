@@ -196,7 +196,7 @@ int main (int argc, char *argv[])
    }
    
    std::string remote_address = argv[optind];
-   std::string shmem_key = argv[optind+1];
+   //std::string shmem_key = argv[optind+1];
       
    
    milkzmq::milkzmqClient mzc;
@@ -204,7 +204,8 @@ int main (int argc, char *argv[])
    mzc.address(remote_address);
    mzc.imagePort(port);
    
-   for(int n=0; n < argc - optind; ++n)
+   std::cerr << "N: " << argc - optind << "\n";
+   for(int n=1; n < argc - optind; ++n)
    {
       std::string remName, locName;
       
@@ -213,7 +214,8 @@ int main (int argc, char *argv[])
          usage();
          return -1;
       }
-      
+      std::cerr << remName << " " << locName << "\n";
+      if(n==0) continue;
       mzc.shMemImName(remName, locName);
    }
    
@@ -221,7 +223,7 @@ int main (int argc, char *argv[])
    
    setSigTermHandler();
    
-   for(size_t n=0; n < argc-optind; ++n)
+   for(size_t n=0; n < argc-optind - 1; ++n)
    {
       mzc.imageThreadStart(n);
    }
@@ -231,7 +233,7 @@ int main (int argc, char *argv[])
       milkzmq::sleep(1);
    }
    
-   for(size_t n=0; n < argc-optind; ++n)
+   for(size_t n=0; n < argc-optind - 1; ++n)
    {
       mzc.imageThreadKill(n);
    }

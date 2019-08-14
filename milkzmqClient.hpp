@@ -347,6 +347,9 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
    
    zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_SUB);
    
+   uint64_t hwm = 1;
+   zmq_setsockopt (&subscriber, ZMQ_RCVHWM, &hwm, sizeof(uint64_t));
+   
    subscriber.connect(srvstr);
    
    std::cerr << "connected\n";
