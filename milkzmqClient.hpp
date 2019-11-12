@@ -357,7 +357,7 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
    memset(filter, 0, 128);
 
    snprintf(filter, 128, "%s", imageName.c_str());
-   subscriber.setsockopt(ZMQ_SUBSCRIBE, filter, strlen (filter));
+   subscriber.setsockopt(ZMQ_SUBSCRIBE, filter, sizeof(filter));
    
    std::string shMemImName;
    if(localImageName == "") shMemImName = imageName;
