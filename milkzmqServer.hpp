@@ -404,7 +404,7 @@ void milkzmqServer::serverThreadExec()
    
    std::cerr << "milkzmqServer: Beginning service at " << srvstr << "\n";
    
-   zmq::socket_t publisher (*m_ZMQ_context, ZMQ_XPUB);
+   zmq::socket_t publisher (*m_ZMQ_context, ZMQ_RADIO);
    
    uint64_t hwm = 1;
    zmq_setsockopt (&publisher, ZMQ_SNDHWM, &hwm, sizeof(uint64_t));

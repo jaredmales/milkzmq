@@ -345,7 +345,7 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
    
    std::cout << "milkzmqClient: Beginning receive at " << srvstr << " for " << imageName << "\n";
    
-   zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_SUB);
+   zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_DISH);
    
    uint64_t hwm = 1;
    zmq_setsockopt (&subscriber, ZMQ_RCVHWM, &hwm, sizeof(uint64_t));
@@ -353,12 +353,12 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
    subscriber.connect(srvstr);
    
    std::cerr << "connected\n";
-   char filter[128];
-   memset(filter, 0, 128);
+   //char filter[128];
+   //memset(filter, 0, 128);
 
-   snprintf(filter, 128, "%s", imageName.c_str());
-   subscriber.setsockopt(ZMQ_SUBSCRIBE, filter, sizeof(filter));
-   
+   //snprintf(filter, 128, "%s", imageName.c_str());
+   //subscriber.setsockopt(ZMQ_SUBSCRIBE, filter, sizeof(filter));
+   subscriber.join(imageName.c_str());
    std::string shMemImName;
    if(localImageName == "") shMemImName = imageName;
    else shMemImName = localImageName;

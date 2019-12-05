@@ -16,7 +16,7 @@ HEADER=milkzmqServer.hpp
 
 OPTIMIZE ?= -O3 -ffast-math
 
-CXXFLAGS += -std=c++14 $(OPTIMIZE)
+CXXFLAGS += -std=c++14 $(OPTIMIZE) -DZMQ_BUILD_DRAFT_API
 
 LDLIBS += -lzmq -lImageStreamIO -lpthread
 
