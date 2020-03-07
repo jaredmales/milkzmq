@@ -28,6 +28,8 @@
 #ifndef milkzmqClient_hpp
 #define milkzmqClient_hpp
 
+#include <signal.h>
+
 #include <zmq.hpp>
 
 #include <ImageStreamIO.h>

@@ -28,6 +28,8 @@
 #ifndef milkzmqServer_hpp
 #define milkzmqServer_hpp
 
+#include <signal.h>
+
 #include <zmq.hpp>
 
 #include <ImageStreamIO.h>
@@ -564,23 +566,6 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
          uint64_t cnt0 = image.md[0].cnt0;
          if(cnt0 != lastCnt0)
          {
-            if(image.md[0].size[2] > 0) ///\todo change to naxis?
-            {
-               curr_image = image.md[0].cnt1;
-               if(curr_image < 0) curr_image = image.md[0].size[2] - 1;
-            }
-            else curr_image = 0;
-
-            atype = image.md[0].datatype;
-            snx = image.md[0].size[0];
-            sny = image.md[0].size[1];
-            snz = image.md[0].size[2];
-         
-            if( atype!= last_atype || snx != last_snx || sny != last_sny || snz != last_snz )
-            {
-               break; //exit the nearest while loop and get the new image setup.
-            }
-         
             //Do a wait for max fps here.
             double currtime = get_curr_time();
             if( currtime - lastCheck < 1.0/m_fpsTgt-delta) 
@@ -592,6 +577,26 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
 
             if(m_timeToDie || m_restart) break; //Check for exit signals
          
+            atype = image.md[0].datatype;
+            snx = image.md[0].size[0];
+            sny = image.md[0].size[1];
+            snz = image.md[0].size[2];
+         
+            if( atype!= last_atype || snx != last_snx || sny != last_sny || snz != last_snz )
+            {
+               break; //exit the nearest while loop and get the new image setup.
+            }
+            
+            if(image.md[0].size[2] > 0) ///\todo change to naxis?
+            {
+               curr_image = image.md[0].cnt1;
+               if(curr_image < 0) curr_image = image.md[0].size[2] - 1;
+            }
+            else curr_image = 0;
+
+            cnt0 = image.md[0].cnt0;
+            
+            
             memset(msg, 0, 128);
             snprintf((char *) msg, 128, "%s", imageName.c_str());
             *((uint8_t *) (msg + typeOffset)) = atype;
