@@ -20,7 +20,9 @@ CXXFLAGS += -std=c++14 $(OPTIMIZE)
 
 LDLIBS += -lzmq -lImageStreamIO -lpthread
 
-all: $(TARGET) $(HEADER)
+all: $(TARGET) 
+
+$(TARGET): $(HEADER)
 
 install: all
 	install -d $(BIN_PATH)
