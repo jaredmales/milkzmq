@@ -25,7 +25,7 @@
 // along with milkzmq.  If not, see <http://www.gnu.org/licenses/>.
 //***********************************************************************//
 
-#include <signal.h>
+
 
 #include "milkzmqServer.hpp"
 
