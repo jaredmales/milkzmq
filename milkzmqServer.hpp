@@ -60,6 +60,8 @@ protected:
    float m_fpsTgt{10}; ///< The max frames per second (f.p.s.) to transmit data.
    
    float m_fpsGain{0.1}; ///< Integrator gain on the fps trigger delta.
+   
+   int m_hwm {1}; ///< The high water mark for messages to buffer.
 
    ///@}
    
@@ -408,14 +410,19 @@ void milkzmqServer::serverThreadExec()
    
    zmq::socket_t publisher (*m_ZMQ_context, ZMQ_XPUB);
    
-   uint64_t hwm = 1;
-   zmq_setsockopt (&publisher, ZMQ_SNDHWM, &hwm, sizeof(uint64_t));
+   int hwm = 1;
+   zmq_setsockopt (&publisher, ZMQ_SNDHWM, &hwm, sizeof(int));
+   int buf = 1024;//2*1024*1024*2;
+   zmq_setsockopt (&publisher, ZMQ_SNDBUF, &buf, sizeof(int));
+
    
    publisher.bind(srvstr);
    
-   
    zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_XSUB);
-   //subscriber.connect("tcp://localhost:6000");
+   
+   buf = 1024;//2*1024*1024*2;
+   zmq_setsockopt (&subscriber, ZMQ_RCVBUF, &buf, sizeof(int));
+   
    for(size_t n=0; n< m_imageThreads.size(); ++n)
    {
       subscriber.connect("inproc://" + m_imageThreads[n].m_imageName);
@@ -501,8 +508,10 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
    
    zmq::socket_t publisher (*m_ZMQ_context, ZMQ_PUB);
     
-   uint64_t hwm = 1;
-   zmq_setsockopt (&publisher, ZMQ_SNDHWM, &hwm, sizeof(uint64_t));
+   int hwm = 1;
+   zmq_setsockopt (&publisher, ZMQ_SNDHWM, &hwm, sizeof(int));
+   int buf = 1024;//2*1024*1024*2;
+   zmq_setsockopt (&publisher, ZMQ_SNDBUF, &buf, sizeof(int));
     
    publisher.bind(srvstr);
    
