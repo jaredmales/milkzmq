@@ -78,8 +78,8 @@ protected:
 
    std::vector<s_imageThread> m_imageThreads; ///< The image threads, one per shared memory streamm being served.
    
-   zmq::context_t * m_ZMQ_context {nullptr}; ///< The ZeroMQ context, allocated on construction.
-   
+   //zmq::context_t * m_ZMQ_context {nullptr}; ///< The ZeroMQ context, allocated on construction.
+   void * m_ZMQ_context {nullptr};
 
    ///@}
    
@@ -204,7 +204,8 @@ bool milkzmqClient::m_timeToDie = false;
 inline
 milkzmqClient::milkzmqClient()
 {
-   m_ZMQ_context = new zmq::context_t(1);
+   //m_ZMQ_context = new zmq::context_t(1);
+   m_ZMQ_context = zmq_ctx_new();
 }
 
 inline
@@ -222,7 +223,10 @@ milkzmqClient::~milkzmqClient()
       }
    }
    
-   if(m_ZMQ_context) delete m_ZMQ_context;
+   //if(m_ZMQ_context) delete m_ZMQ_context;
+   std::cerr << "x\n";
+   if(m_ZMQ_context) zmq_ctx_destroy(m_ZMQ_context);
+   std::cerr << "y\n";
 }
 
 inline 
@@ -343,24 +347,30 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
 {   
    //size_t type_size = 0; ///< The size, in bytes, of the image data type
 
-   std::string srvstr = "tcp://" + m_address + ":" + std::to_string(m_imagePort);
+   std::string srvstr = "udp://" + m_address + ":" + std::to_string(m_imagePort);
    
    std::cout << "milkzmqClient: Beginning receive at " << srvstr << " for " << imageName << "\n";
    
-   zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_DISH);
+   //zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_DISH);
    
-   uint64_t hwm = 1;
-   zmq_setsockopt (&subscriber, ZMQ_RCVHWM, &hwm, sizeof(uint64_t));
+   void *dish = zmq_socket(m_ZMQ_context, ZMQ_DISH);
    
-   subscriber.connect(srvstr);
-   
-   std::cerr << "connected\n";
-   //char filter[128];
-   //memset(filter, 0, 128);
+   if (zmq_bind(dish, srvstr.c_str()) != 0) 
+   {
+      printf("Failed to bind listen socket.");
+      return;
+   }
 
-   //snprintf(filter, 128, "%s", imageName.c_str());
-   //subscriber.setsockopt(ZMQ_SUBSCRIBE, filter, sizeof(filter));
-   subscriber.join(imageName.c_str());
+   std::cerr << "connected\n";
+
+   if (zmq_join(dish, imageName.c_str()) != 0) 
+   {
+      printf("Could not subscribe to %s.", imageName.c_str());
+      return;
+   }
+    
+   std::cerr << "joined\n";
+   
    std::string shMemImName;
    if(localImageName == "") shMemImName = imageName;
    else shMemImName = localImageName;
@@ -379,70 +389,115 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
     
    int curr_image;
    
+   uint64_t last_cnt0 = (uint64_t) (-1);
+   
+   std::vector<uint32_t> msgNumsReceived;
+   std::vector<uint8_t> receivedData;
+   
+   bool finished = true;
    while(!m_timeToDie)
    {
-      zmq::message_t msg;
-        
-      try
-      {
-         #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
-            subscriber.recv(msg);
-         #else
-            subscriber.recv(&msg); 
-         #endif
-      }
-      catch(...)
-      {
-         if(m_timeToDie) break; //This will be if signaled during shutdown
-         throw; //otherwise uh-oh
-      }
+      //zmq::message_t msg;
+      
+      int bytesReceived;
+      zmq_msg_t receiveMessage;
 
-      char * raw_image= (char *) msg.data();
+      zmq_msg_init(&receiveMessage);
+      bytesReceived = zmq_msg_recv(&receiveMessage, dish, 0);
+    
+      //std::cerr << "received: " << bytesReceived << "\n";
       
-      new_atype = *( (uint8_t *) (raw_image + typeOffset) );
-      new_nx = *( (uint32_t *) (raw_image + size0Offset));
-      new_ny = *( (uint32_t *) (raw_image + size1Offset));
+      std::string group = zmq_msg_group(&receiveMessage);
       
-      if( nx != new_nx || ny != new_ny || atype != new_atype)
+      //std::cerr << group << ": ";
+      char *msgBuff = (char *) zmq_msg_data(&receiveMessage);
+      size_t rSz = zmq_msg_size(&receiveMessage);
+               
+      uint64_t cnt0 = *((uint64_t *) (msgBuff + cnt0Offset));
+      uint32_t msgNum = *((uint32_t *) (msgBuff + msgNumOffset));
+      uint32_t msgNumTot = *((uint32_t *) (msgBuff + msgNumTotalOffset));
+      
+      //std::cerr << cnt0 << " " << msgNum << "/" << msgNumTot << "\n";
+      
+      if(cnt0 != last_cnt0)
       {
-         imsize[0] = new_nx;
-         imsize[1] = new_ny;
-         imsize[2] = 0;
+         if(!finished) std::cerr << "missed frame " << last_cnt0 << "\n";
          
-         if(opened)
+         msgNumsReceived.resize(msgNumTot);
+         for(int n=0;n<msgNumsReceived.size(); ++n) msgNumsReceived[n] = 0;
+         
+         last_cnt0 = cnt0;
+         
+         finished = false;
+      }
+      
+      msgNumsReceived[msgNum] = 1;
+      
+
+      if( receivedData.size() < msgNum*1024 + rSz - payloadOffset) 
+      {
+         receivedData.resize( msgNum*1024 + rSz - payloadOffset);
+      }
+      
+      for(size_t i=0;i<rSz-payloadOffset; ++i) receivedData[ msgNum*1024 + i] = msgBuff[payloadOffset + i];
+      
+      zmq_msg_close(&receiveMessage);
+
+      int numReceived = 0;
+      for(size_t n=0;n<msgNumsReceived.size(); ++n) numReceived += msgNumsReceived[n];
+      
+      if(numReceived == msgNumTot)
+      {
+         finished = true;
+      
+         char * raw_image= (char *) receivedData.data();
+      
+         new_atype = *( (uint8_t *) (raw_image + typeOffset) );
+         new_nx = *( (uint32_t *) (raw_image + size0Offset));
+         new_ny = *( (uint32_t *) (raw_image + size1Offset));
+         
+         if( nx != new_nx || ny != new_ny || atype != new_atype)
          {
-            ImageStreamIO_destroyIm(&image);
+            imsize[0] = new_nx;
+            imsize[1] = new_ny;
+            imsize[2] = 0;
+            
+            if(opened)
+            {
+               ImageStreamIO_destroyIm(&image);
+            }
+            
+            ImageStreamIO_createIm(&image, shMemImName.c_str(), 2, imsize, new_atype, 1, 0);
+            
+            opened = true;
          }
          
-         ImageStreamIO_createIm(&image, shMemImName.c_str(), 2, imsize, new_atype, 1, 0);
+         atype = new_atype;
+         nx = new_nx;
+         ny = new_ny;
          
-         opened = true;
+      
+         //This is not a rolling buffer.
+         curr_image = 0;
+         
+         size_t type_size = ImageStreamIO_typesize(image.md[0].datatype);
+      
+         image.md[0].write=1;
+      
+         image.md[0].cnt0 = cnt0;//*( (uint64_t *) (raw_image + cnt0Offset));
+         image.md[0].atime.tv_sec = *( (uint64_t *) (raw_image + tv_secOffset));
+         image.md[0].atime.tv_nsec = *( (uint64_t *) (raw_image + tv_nsecOffset));
+         //std::cerr << image.md[0].cnt0 << " " << image.md[0].atime.tv_sec << " " << image.md[0].atime.tv_nsec << "\n";
+         
+         memcpy(image.array.SI8 + curr_image*nx*ny*type_size, raw_image + imageOffset, nx*ny*type_size);
+         
+           
+      
+         image.md[0].cnt1=0;
+         image.md[0].write=0;
+         ImageStreamIO_sempost(&image,-1);
+         
       }
-      
-      atype = new_atype;
-      nx = new_nx;
-      ny = new_ny;
-      
-
-      //This is not a rolling buffer.
-      curr_image = 0;
-      
-      size_t type_size = ImageStreamIO_typesize(image.md[0].datatype);
-
-      image.md[0].write=1;
-
-      image.md[0].cnt0 = *( (uint64_t *) (raw_image + cnt0Offset));
-      image.md[0].atime.tv_sec = *( (uint64_t *) (raw_image + tv_secOffset));
-      image.md[0].atime.tv_nsec = *( (uint64_t *) (raw_image + tv_nsecOffset));
-      
-      
-      memcpy(image.array.SI8 + curr_image*nx*ny*type_size, raw_image + imageOffset, nx*ny*type_size);
-      
-        
-
-      image.md[0].cnt1=0;
-      image.md[0].write=0;
-      ImageStreamIO_sempost(&image,-1);
    }
 
    if(opened) ImageStreamIO_closeIm(&image);

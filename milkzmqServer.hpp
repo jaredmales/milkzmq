@@ -61,7 +61,6 @@ protected:
    
    float m_fpsGain{0.1}; ///< Integrator gain on the fps trigger delta.
    
-   int m_hwm {1}; ///< The high water mark for messages to buffer.
 
    ///@}
    
@@ -88,8 +87,10 @@ protected:
 
    std::vector<s_imageThread> m_imageThreads; ///< The image threads, one per shared memory streamm being served.
    
-   zmq::context_t * m_ZMQ_context {nullptr}; ///< The ZeroMQ context, allocated on construction.
+   //zmq::context_t * m_ZMQ_context {nullptr}; ///< The ZeroMQ context, allocated on construction.
 
+   void * m_ZMQ_context {nullptr};
+   void * m_radio {nullptr};
    ///@}
    
 public:
@@ -199,14 +200,17 @@ private:
    static void internal_serverThreadStart( milkzmqServer * mzs /**< [in] a pointer to a milkzmqServer instance, usually this */);
 
 public:
-   /// Start the server thread.
-   int serverThreadStart();
-
-   /// Execute the image thread.
-   void serverThreadExec();
    
-   /// Signal the server thread to kill it.
-   int serverThreadKill( );
+   int startServer();
+   
+//    /// Start the server thread.
+//    int serverThreadStart();
+// 
+//    /// Execute the image thread.
+//    void serverThreadExec();
+//    
+//    /// Signal the server thread to kill it.
+//    int serverThreadKill( );
    
 private:
    
@@ -251,7 +255,8 @@ bool milkzmqServer::m_restart = false;
 inline
 milkzmqServer::milkzmqServer()
 {
-   m_ZMQ_context = new zmq::context_t;
+   //m_ZMQ_context = new zmq::context_t;
+   m_ZMQ_context = zmq_ctx_new();
 }
 
 inline
@@ -270,10 +275,12 @@ milkzmqServer::~milkzmqServer()
    }
    
    
-   pthread_kill(m_serverThread.native_handle(), SIGINT);
+/*   pthread_kill(m_serverThread.native_handle(), SIGINT);
    if(m_serverThread.joinable()) m_serverThread.join();
+  */ 
+//    if(m_ZMQ_context) delete m_ZMQ_context;
    
-   if(m_ZMQ_context) delete m_ZMQ_context;
+   if(m_ZMQ_context) zmq_ctx_destroy(m_ZMQ_context);
 }
 
 inline 
@@ -369,79 +376,105 @@ float milkzmqServer::fpsGain()
 }
 
 inline
-void milkzmqServer::internal_serverThreadStart( milkzmqServer * mzs )
+int milkzmqServer::startServer()
 {
-   mzs->serverThreadExec();
-}
-
-inline
-int milkzmqServer::serverThreadStart()
-{
-   try
+   m_radio = zmq_socket(m_ZMQ_context, ZMQ_RADIO);
+   
+   if(m_radio == nullptr)
    {
-      m_serverThread = std::thread( internal_serverThreadStart, this);
-   }
-   catch( const std::exception & e )
-   {
-      reportError(std::string("exception in server thread startup: ") +e.what(), __FILE__, __LINE__);
-      return -1;
-   }
-   catch( ... )
-   {
-      reportError("unknown exception in server thread startup", __FILE__, __LINE__);
+      printf("Failed to create sending socket.");
+      
       return -1;
    }
    
-   if(!m_serverThread.joinable())
+   std::string srvstr = "udp://127.0.0.1:" + std::to_string(m_imagePort);
+   
+   if (zmq_connect(m_radio, srvstr.c_str()) != 0) 
    {
-      reportError("server thread did not start", __FILE__, __LINE__);
+      printf("Failed to connect sending socket.");
+      zmq_close(m_radio);
+      m_radio = nullptr;
       return -1;
    }
    
+   std::cout << "serving on " << srvstr << "\n";
    return 0;
 }
 
-inline
-void milkzmqServer::serverThreadExec()
-{   
-   std::string srvstr = "tcp://*:" + std::to_string(m_imagePort);
-   
-   std::cerr << "milkzmqServer: Beginning service at " << srvstr << "\n";
-   
-   zmq::socket_t publisher (*m_ZMQ_context, ZMQ_RADIO);
-   
-   int hwm = 1;
-   zmq_setsockopt (&publisher, ZMQ_SNDHWM, &hwm, sizeof(int));
-   int buf = 1024;//2*1024*1024*2;
-   zmq_setsockopt (&publisher, ZMQ_SNDBUF, &buf, sizeof(int));
-
-   
-   publisher.bind(srvstr);
-   
-   zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_XSUB);
-   
-   buf = 1024;//2*1024*1024*2;
-   zmq_setsockopt (&subscriber, ZMQ_RCVBUF, &buf, sizeof(int));
-   
-   for(size_t n=0; n< m_imageThreads.size(); ++n)
-   {
-      subscriber.connect("inproc://" + m_imageThreads[n].m_imageName);
-   }
-
-   while(!m_timeToDie) //loop on timeToDie in case this gets interrupted by SIGSEGV/SIGBUS
-   {
-      //This runs until signaled.
-      zmq_proxy (subscriber, publisher, 0); 
-   }
-   
-} // milkzmqServer::serverThreadExec()
-
-inline
-int milkzmqServer::serverThreadKill()
-{
-   pthread_kill(m_serverThread.native_handle(), SIGTERM);
-   return 0;
-}
+// inline
+// void milkzmqServer::internal_serverThreadStart( milkzmqServer * mzs )
+// {
+//    mzs->serverThreadExec();
+// }
+// 
+// inline
+// int milkzmqServer::serverThreadStart()
+// {
+//    try
+//    {
+//       m_serverThread = std::thread( internal_serverThreadStart, this);
+//    }
+//    catch( const std::exception & e )
+//    {
+//       reportError(std::string("exception in server thread startup: ") +e.what(), __FILE__, __LINE__);
+//       return -1;
+//    }
+//    catch( ... )
+//    {
+//       reportError("unknown exception in server thread startup", __FILE__, __LINE__);
+//       return -1;
+//    }
+//    
+//    if(!m_serverThread.joinable())
+//    {
+//       reportError("server thread did not start", __FILE__, __LINE__);
+//       return -1;
+//    }
+//    
+//    return 0;
+// }
+// 
+// inline
+// void milkzmqServer::serverThreadExec()
+// {   
+//    std::string srvstr = "udp://127.0.0.1:" + std::to_string(m_imagePort);
+//    
+//    std::cerr << "milkzmqServer: Beginning service at " << srvstr << "\n";
+//    
+//    zmq::socket_t publisher (*m_ZMQ_context, ZMQ_RADIO);
+//    
+//    int hwm = 1;
+//    zmq_setsockopt (&publisher, ZMQ_SNDHWM, &hwm, sizeof(int));
+//    int buf = 1024;//2*1024*1024*2;
+//    zmq_setsockopt (&publisher, ZMQ_SNDBUF, &buf, sizeof(int));
+// 
+//    
+//    publisher.bind(srvstr);
+//    
+//    zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_XSUB);
+//    
+//    buf = 1024;//2*1024*1024*2;
+//    zmq_setsockopt (&subscriber, ZMQ_RCVBUF, &buf, sizeof(int));
+//    
+//    for(size_t n=0; n< m_imageThreads.size(); ++n)
+//    {
+//       subscriber.connect("inproc://" + m_imageThreads[n].m_imageName);
+//    }
+// 
+//    while(!m_timeToDie) //loop on timeToDie in case this gets interrupted by SIGSEGV/SIGBUS
+//    {
+//       //This runs until signaled.
+//       zmq_proxy (subscriber, publisher, 0); 
+//    }
+//    
+// } // milkzmqServer::serverThreadExec()
+// 
+// inline
+// int milkzmqServer::serverThreadKill()
+// {
+//    pthread_kill(m_serverThread.native_handle(), SIGTERM);
+//    return 0;
+// }
 
 inline
 void milkzmqServer::internal_imageThreadStart( s_imageThread * mit )
@@ -492,6 +525,12 @@ errno_t new_printError( const char *file, const char *func, int line, errno_t co
    return IMAGESTREAMIO_SUCCESS;
 }
 
+void free_msg_buff (void *data, void *hint)
+{
+   static_cast<void>(hint);
+   free(data);
+}
+
 inline
 void milkzmqServer::imageThreadExec(const std::string & imageName)
 {   
@@ -501,23 +540,29 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
 
    ImageStreamIO_set_printError(new_printError);
    
+   //ensure creation of the socket
+   while(m_radio == nullptr) 
+   {
+      sleep(1);
+   }
+   
    //std::string srvstr = "tcp://*:6000";
-   std::string srvstr = "inproc://" + imageName;
+   //std::string srvstr = "inproc://" + imageName;
    
 //   std::cerr << "milkzmqServer: Beginning service at " << srvstr << "\n";
    
-   zmq::socket_t publisher (*m_ZMQ_context, ZMQ_PUB);
+   //zmq::socket_t publisher (*m_ZMQ_context, ZMQ_PUB);
     
-   int hwm = 1;
-   zmq_setsockopt (&publisher, ZMQ_SNDHWM, &hwm, sizeof(int));
-   int buf = 1024;//2*1024*1024*2;
-   zmq_setsockopt (&publisher, ZMQ_SNDBUF, &buf, sizeof(int));
-    
-   publisher.bind(srvstr);
+//    int hwm = 1;
+//    /zmq_setsockopt (&publisher, ZMQ_SNDHWM, &hwm, sizeof(int));
+//    int buf = 1024;//2*1024*1024*2;
+//    zmq_setsockopt (&publisher, ZMQ_SNDBUF, &buf, sizeof(int));
+//     
+//    publisher.bind(srvstr);
    
    bool opened = false;
    
-   uint8_t * msg = nullptr;
+   
    
    while(!m_timeToDie)
    {
@@ -561,8 +606,14 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
 
       
       
-      size_t msgSz = imageOffset + last_snx*last_sny*type_size;
-      msg = (uint8_t *) malloc(msgSz);
+      size_t totMsgSz = imageOffset + last_snx*last_sny*type_size;
+      
+      
+      size_t nMsgs = totMsgSz/1024 + 1;
+      
+      std::cerr << "nMsgs: " << nMsgs << "\n";
+      
+      //msgBuff = (uint8_t *) malloc(msgSz);
       
       double lastCheck = get_curr_time();
       double lastSend = get_curr_time();
@@ -606,20 +657,63 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
             cnt0 = image.md[0].cnt0;
             
             
-            memset(msg, 0, 128);
-            snprintf((char *) msg, 128, "%s", imageName.c_str());
-            *((uint8_t *) (msg + typeOffset)) = atype;
-            *((uint32_t *) (msg + size0Offset)) = snx;
-            *((uint32_t *) (msg + size1Offset)) = sny;
-            *((uint64_t *) (msg + cnt0Offset)) = image.md[0].cnt0;
-            *((uint64_t *) (msg + tv_secOffset)) = image.md[0].atime.tv_sec;
-            *((uint64_t *) (msg + tv_nsecOffset)) = image.md[0].atime.tv_nsec;
             
-            memcpy(msg + imageOffset, image.array.SI8 + curr_image*snx*sny*type_size, snx*sny*type_size);
+            
                         
             if(m_timeToDie || m_restart) break; //Check for exit signals
             
-            publisher.send(msg, msgSz);
+            int ntotw = 0;
+            for(size_t n=0; n < nMsgs; ++n)
+            {
+               zmq_msg_t zMsg;
+            
+               uint8_t * msgBuff = (uint8_t*) malloc(1024 + payloadOffset);
+               
+               *((uint64_t *) (msgBuff + cnt0Offset)) = image.md[0].cnt0;
+               *((uint32_t *) (msgBuff + msgNumOffset)) = n;
+               *((uint32_t *) (msgBuff + msgNumTotalOffset)) = nMsgs;
+               
+               int nw = payloadOffset;
+               if(n == 0)
+               {
+                  *((uint8_t *) (msgBuff + payloadOffset + typeOffset)) = atype;
+                  *((uint32_t *) (msgBuff + payloadOffset + size0Offset)) = snx;
+                  *((uint32_t *) (msgBuff + payloadOffset + size1Offset)) = sny;
+                  *((uint64_t *) (msgBuff + payloadOffset + tv_secOffset)) = image.md[0].atime.tv_sec;
+                  *((uint64_t *) (msgBuff + payloadOffset + tv_nsecOffset)) = image.md[0].atime.tv_nsec;
+                  
+                  nw += imageOffset;
+               }
+               
+               int ntow = snx*sny*type_size - ntotw;
+               
+               if(ntow > 1024+payloadOffset - nw) ntow = 1024+payloadOffset - nw;
+               
+               memcpy(msgBuff + nw, image.array.SI8 + curr_image*snx*sny*type_size + ntotw, ntow);  
+               ntotw += ntow;
+            
+               if (zmq_msg_init_data(&zMsg, msgBuff, nw+ntow, &free_msg_buff, NULL) != 0) 
+               {
+                  printf("Failed to init message for topic %s.", imageName.c_str());
+                  return;
+               }
+            
+               if (zmq_msg_set_group(&zMsg, imageName.c_str()) != 0) 
+               {
+                  printf("Failed to set topic %s.", imageName.c_str());
+                  return;
+               }
+            
+               int nsent = zmq_msg_send(&zMsg, m_radio, 0);
+               if ( nsent == -1) 
+               {
+                  zmq_msg_close(&zMsg);
+                  printf("Failed to send message on topic %s.", imageName.c_str());
+                  return;
+               }
+                        
+               zmq_msg_close(&zMsg);
+            }
             
             double ct = get_curr_time();
             delta += m_fpsGain * (ct-lastSend - 1.0/m_fpsTgt);
@@ -631,8 +725,9 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
             if(errno != EAGAIN) break;
 
             if(image.md[0].sem <= 0) break; //Indicates that the server has cleaned up.
-            
+
             milkzmq::microsleep(m_usecSleep);
+
          }
       }
 
@@ -642,13 +737,13 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
          opened = false;
       }
       
-      free(msg);
-      msg = nullptr;
+//       free(msgBuff);
+//       msgBuff = nullptr;
    }
    
    //One more check
    if(opened) ImageStreamIO_closeIm(&image);
-   if(msg) free(msg);
+  // if(msgBuff) free(msgBuff);
    
 } // milkzmqServer::imageThreadExec()
 

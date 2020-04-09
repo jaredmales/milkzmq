@@ -204,7 +204,6 @@ int main (int argc, char *argv[])
    mzc.address(remote_address);
    mzc.imagePort(port);
    
-   std::cerr << "N: " << argc - optind << "\n";
    for(int n=1; n < argc - optind; ++n)
    {
       std::string remName, locName;

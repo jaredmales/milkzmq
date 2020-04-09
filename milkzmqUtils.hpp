@@ -36,11 +36,15 @@
 namespace milkzmq 
 {
 
-constexpr size_t typeOffset = 128;
+constexpr size_t cnt0Offset = 0;
+constexpr size_t msgNumOffset = cnt0Offset + sizeof(uint64_t);
+constexpr size_t msgNumTotalOffset = msgNumOffset + sizeof(uint32_t);
+constexpr size_t payloadOffset = msgNumTotalOffset + sizeof(uint32_t);
+
+constexpr size_t typeOffset = 0; 
 constexpr size_t size0Offset = typeOffset+sizeof(uint8_t);
 constexpr size_t size1Offset = size0Offset + sizeof(uint32_t);
-constexpr size_t cnt0Offset = size1Offset + sizeof(uint32_t);
-constexpr size_t tv_secOffset = cnt0Offset + sizeof(uint64_t);
+constexpr size_t tv_secOffset = size1Offset + sizeof(uint32_t);
 constexpr size_t tv_nsecOffset = tv_secOffset + sizeof(uint64_t);
 constexpr size_t imageOffset = tv_nsecOffset + sizeof(uint64_t);
       

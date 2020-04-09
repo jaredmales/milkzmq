@@ -231,7 +231,8 @@ int main( int argc,
    setSigTermHandler();
    setSigSegvHandler();
  
-   mzs.serverThreadStart();
+   mzs.startServer();
+   //mzs.serverThreadStart();
 
    for(size_t n=0; n < argc-optind; ++n)
    {
@@ -243,7 +244,7 @@ int main( int argc,
       milkzmq::sleep(1);
    }
    
-   mzs.serverThreadKill();
+   //mzs.serverThreadKill();
    
    for(size_t n=0; n < argc-optind; ++n)
    {
