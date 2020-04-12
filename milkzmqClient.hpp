@@ -30,6 +30,8 @@
 
 #include <signal.h>
 
+#define ZMQ_BUILD_DRAFT_API
+#define ZMQ_CPP11
 #include <zmq.hpp>
 
 #include <ImageStreamIO.h>
@@ -211,6 +213,8 @@ inline
 milkzmqClient::~milkzmqClient()
 {
    m_timeToDie = true;
+
+   if(m_ZMQ_context) delete m_ZMQ_context;
    
    for(size_t n = 0; n < m_imageThreads.size(); ++n)
    {
@@ -222,7 +226,7 @@ milkzmqClient::~milkzmqClient()
       }
    }
    
-   if(m_ZMQ_context) delete m_ZMQ_context;
+
 }
 
 inline 
@@ -347,19 +351,22 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
    
    std::cout << "milkzmqClient: Beginning receive at " << srvstr << " for " << imageName << "\n";
    
-   zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_SUB);
+   zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_CLIENT);
    
-   uint64_t hwm = 1;
-   zmq_setsockopt (&subscriber, ZMQ_RCVHWM, &hwm, sizeof(uint64_t));
    
    subscriber.connect(srvstr);
    
    std::cerr << "connected\n";
+   
    char filter[128];
    memset(filter, 0, 128);
 
    snprintf(filter, 128, "%s", imageName.c_str());
-   subscriber.setsockopt(ZMQ_SUBSCRIBE, filter, sizeof(filter));
+   
+   zmq::message_t request(imageName.data(), imageName.size());
+   //memcpy( request.data(), imageName.c_str(), imageName.size());
+   subscriber.send(request, zmq::send_flags::none);
+   
    
    std::string shMemImName;
    if(localImageName == "") shMemImName = imageName;
@@ -443,10 +450,15 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
       image.md[0].cnt1=0;
       image.md[0].write=0;
       ImageStreamIO_sempost(&image,-1);
+      
+      request.rebuild(imageName.data(), imageName.size());
+      //memcpy( request.data(), imageName.c_str(), imageName.size());
+      subscriber.send(request, zmq::send_flags::none);
    }
 
    if(opened) ImageStreamIO_closeIm(&image);
    
+   subscriber.close();
    
 } // milkzmqClient::imageThreadExec()
 

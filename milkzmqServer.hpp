@@ -30,6 +30,11 @@
 
 #include <signal.h>
 
+#include <unordered_map>
+#include <mutex>
+
+#define ZMQ_BUILD_DRAFT_API
+#define ZMQ_CPP11
 #include <zmq.hpp>
 
 #include <ImageStreamIO.h>
@@ -61,16 +66,27 @@ protected:
    
    float m_fpsGain{0.1}; ///< Integrator gain on the fps trigger delta.
    
-   int m_hwm {1}; ///< The high water mark for messages to buffer.
-
    ///@}
    
    /** \name Internal State 
      *
      *@{
      */
+
+   zmq::context_t * m_ZMQ_context {nullptr}; ///< The ZeroMQ context, allocated on construction.
+
+   zmq::socket_t * m_server {nullptr};  ///< The ZeroMQ server, allocated when the server thread starts up.
    
    std::thread m_serverThread;
+   
+   typedef uint32_t routing_id_t;
+   
+   typedef std::unordered_map< std::string, bool> imageReceivedFlagMap_t;
+   
+   std::unordered_map<routing_id_t, imageReceivedFlagMap_t> m_requestorMap;
+   
+   ///Mutex for locking map operations (allows asynchronous deletes).
+   std::mutex m_mapMutex;
    
    ///Structure to manage the image threads, including startup.
    struct s_imageThread
@@ -88,8 +104,7 @@ protected:
 
    std::vector<s_imageThread> m_imageThreads; ///< The image threads, one per shared memory streamm being served.
    
-   zmq::context_t * m_ZMQ_context {nullptr}; ///< The ZeroMQ context, allocated on construction.
-
+   
    ///@}
    
 public:
@@ -269,11 +284,15 @@ milkzmqServer::~milkzmqServer()
       }
    }
    
+   if(m_server) m_server->close();
+   
+   if(m_ZMQ_context) delete m_ZMQ_context;
    
    pthread_kill(m_serverThread.native_handle(), SIGINT);
    if(m_serverThread.joinable()) m_serverThread.join();
    
-   if(m_ZMQ_context) delete m_ZMQ_context;
+  
+   
 }
 
 inline 
@@ -408,31 +427,52 @@ void milkzmqServer::serverThreadExec()
    
    std::cerr << "milkzmqServer: Beginning service at " << srvstr << "\n";
    
-   zmq::socket_t publisher (*m_ZMQ_context, ZMQ_XPUB);
-   
-   int hwm = 1;
-   zmq_setsockopt (&publisher, ZMQ_SNDHWM, &hwm, sizeof(int));
-   int buf = 1024;//2*1024*1024*2;
-   zmq_setsockopt (&publisher, ZMQ_SNDBUF, &buf, sizeof(int));
-
-   
-   publisher.bind(srvstr);
-   
-   zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_XSUB);
-   
-   buf = 1024;//2*1024*1024*2;
-   zmq_setsockopt (&subscriber, ZMQ_RCVBUF, &buf, sizeof(int));
-   
-   for(size_t n=0; n< m_imageThreads.size(); ++n)
+   //Should be nullptr, but in case this gets called twice.
+   if(m_server)
    {
-      subscriber.connect("inproc://" + m_imageThreads[n].m_imageName);
+      m_server->close();
+      delete m_server;
+      m_server = nullptr;
    }
-
+      
+   m_server = new zmq::socket_t(*m_ZMQ_context, ZMQ_SERVER);
+     
+   m_server->bind(srvstr);
+   
+   char reqShmim[1024];
+   
    while(!m_timeToDie) //loop on timeToDie in case this gets interrupted by SIGSEGV/SIGBUS
    {
-      //This runs until signaled.
-      zmq_proxy (subscriber, publisher, 0); 
+      zmq::message_t request;
+
+      try
+      {
+         //Wait for next request from a client
+         m_server->recv (request);
+      }
+      catch(...)
+      {
+         if(m_timeToDie) break; //If an exception is thrown we check for timeToDie
+         throw;
+      }
+      
+      uint32_t routing_id = request.routing_id();
+      
+      size_t sz = sizeof(reqShmim);
+      if(request.size() +1 < sz) sz = request.size()+1;
+      snprintf(reqShmim, sz, "%s", (char*)request.data());
+      
+      std::cout << "Received Request from " << routing_id << ": " << reqShmim << "\n";
+      
+      //Scope for map mutex
+      {
+         std::lock_guard<std::mutex> guard(m_mapMutex);
+      
+         //All we do is set the received flag to for this client and shmim, which tells the image thread to go ahead and send next time.
+         m_requestorMap[routing_id][reqShmim] = true;      
+      }
    }
+            
    
 } // milkzmqServer::serverThreadExec()
 
@@ -500,24 +540,16 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
    size_t type_size = 0; ///< The size, in bytes, of the image data type
 
    ImageStreamIO_set_printError(new_printError);
-   
-   //std::string srvstr = "tcp://*:6000";
-   std::string srvstr = "inproc://" + imageName;
-   
-//   std::cerr << "milkzmqServer: Beginning service at " << srvstr << "\n";
-   
-   zmq::socket_t publisher (*m_ZMQ_context, ZMQ_PUB);
-    
-   int hwm = 1;
-   zmq_setsockopt (&publisher, ZMQ_SNDHWM, &hwm, sizeof(int));
-   int buf = 1024;//2*1024*1024*2;
-   zmq_setsockopt (&publisher, ZMQ_SNDBUF, &buf, sizeof(int));
-    
-   publisher.bind(srvstr);
-   
+      
    bool opened = false;
    
    uint8_t * msg = nullptr;
+   
+   
+   while(m_server == nullptr)
+   {
+      milkzmq::sleep(1);
+   }
    
    while(!m_timeToDie)
    {
@@ -619,16 +651,67 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                         
             if(m_timeToDie || m_restart) break; //Check for exit signals
             
-            publisher.send(msg, msgSz);
+
+            routing_id_t rid = 0;
+            bool found = false; //docs aren't clear if routing_id can be 0
+
+            //We lock the mutex during lookup, but unlock so that the send isn't blocked.
+            //Scope for map mutex
+            {
+               std::lock_guard<std::mutex> guard(m_mapMutex);
+
+               std::unordered_map<routing_id_t, imageReceivedFlagMap_t>::iterator it = m_requestorMap.begin();
+            
+               while(it != m_requestorMap.end())
+               {
+                  if( it->second.count(imageName) > 0 )
+                  {
+                     if(it->second[imageName] == true)
+                     {
+                        rid = it->first;
+                        found = true;
+                        break;
+                     }
+                  }
+                  ++it;
+               }
+            }
+            
+            if( found )
+            {
+               std::cerr << "sending " << imageName << " to " << rid << "\n";
+               zmq::message_t frame( msg, msgSz );
+               frame.set_routing_id(rid);
+               
+               try
+               {
+                  m_server->send(frame, zmq::send_flags::none);
+                  
+                  std::lock_guard<std::mutex> guard(m_mapMutex);
+                  m_requestorMap[rid][imageName] = false;
+               }
+               catch(...)
+               {
+                  //Assume this means the client is no longer connected
+                  std::lock_guard<std::mutex> guard(m_mapMutex);
+                  m_requestorMap.erase(rid);
+               }
+               
+               
+               
+            }
+            
+            
             
             double ct = get_curr_time();
             delta += m_fpsGain * (ct-lastSend - 1.0/m_fpsTgt);
             lastSend = ct;
             lastCnt0 = cnt0;
+            
          }
          else
          {
-            if(errno != EAGAIN) break;
+            //if(errno != EAGAIN) break;
 
             if(image.md[0].sem <= 0) break; //Indicates that the server has cleaned up.
             
