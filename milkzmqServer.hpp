@@ -448,8 +448,11 @@ void milkzmqServer::serverThreadExec()
       try
       {
          //Wait for next request from a client
-         //m_server->recv (request)i;
+         #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
+         m_server->recv (request);
+         #else
          m_server->recv(&request);
+         #endif
       }
       catch(...)
       {
@@ -462,8 +465,6 @@ void milkzmqServer::serverThreadExec()
       size_t sz = sizeof(reqShmim);
       if(request.size() +1 < sz) sz = request.size()+1;
       snprintf(reqShmim, sz, "%s", (char*)request.data());
-      
-      std::cout << "Received Request from " << routing_id << ": " << reqShmim << "\n";
       
       //Scope for map mutex
       {
@@ -656,7 +657,7 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
             routing_id_t rid = 0;
             bool found = false; //docs aren't clear if routing_id can be 0
 
-            //We lock the mutex during lookup, but unlock so that the send isn't blocked.
+            //We lock the mutex during lookup, but unlock so that it isn't blocked during the send call.
             //Scope for map mutex
             {
                std::lock_guard<std::mutex> guard(m_mapMutex);
@@ -680,15 +681,17 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
             
             if( found )
             {
-               std::cerr << "sending " << imageName << " to " << rid << "\n";
                zmq::message_t frame( msg, msgSz );
                frame.set_routing_id(rid);
                
                try
                {
-                  //m_server->send(frame, zmq::send_flags::none);
+                  #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
+                  m_server->send(frame, zmq::send_flags::none);
+                  #else
                   m_server->send(frame);
-
+                  #endif
+                  
                   std::lock_guard<std::mutex> guard(m_mapMutex);
                   m_requestorMap[rid][imageName] = false;
                }
@@ -698,9 +701,6 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                   std::lock_guard<std::mutex> guard(m_mapMutex);
                   m_requestorMap.erase(rid);
                }
-               
-               
-               
             }
             
             

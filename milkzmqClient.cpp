@@ -189,15 +189,13 @@ int main (int argc, char *argv[])
    }
 
 
-   if( optind != argc-2)
+   if( argc - optind < 2)
    {
-      usage("must specify remote address and shared memory file name as only non-option arguments.");
+      usage("must specify remote address and shared memory file(s) name as non-option arguments.");
       return -1;
    }
    
    std::string remote_address = argv[optind];
-   //std::string shmem_key = argv[optind+1];
-      
    
    milkzmq::milkzmqClient mzc;
    mzc.argv0(argv0);

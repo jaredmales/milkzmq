@@ -345,122 +345,152 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
                                      const std::string & localImageName 
                                    )
 {   
-   //size_t type_size = 0; ///< The size, in bytes, of the image data type
-
    std::string srvstr = "tcp://" + m_address + ":" + std::to_string(m_imagePort);
    
-   std::cout << "milkzmqClient: Beginning receive at " << srvstr << " for " << imageName << "\n";
-   
-   zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_CLIENT);
+   std::cerr << "milkzmqClient: Beginning receive at " << srvstr << " for " << imageName << "\n";
    
    
-   subscriber.connect(srvstr);
-   
-   std::cerr << "connected\n";
-   
-   char filter[128];
-   memset(filter, 0, 128);
-
-   snprintf(filter, 128, "%s", imageName.c_str());
-   
-   zmq::message_t request(imageName.data(), imageName.size());
-   //memcpy( request.data(), imageName.c_str(), imageName.size());
-   //subscriber.send(request, zmq::send_flags::none);
-   subscriber.send(request);
-   
-   std::string shMemImName;
-   if(localImageName == "") shMemImName = imageName;
-   else shMemImName = localImageName;
    
    uint8_t new_atype, atype=0;
    uint64_t new_nx, nx =0;
    uint64_t new_ny, ny =0;
-   
+      
    /* Initialize ImageStreamIO
     */
-   
+     
    IMAGE image;
    bool opened = false;
-    
+       
    uint32_t imsize[3];
-    
+       
    int curr_image;
-   
+      
+   //Outer loop, which will periodically refresh the subscription if needed.
    while(!m_timeToDie)
    {
-      zmq::message_t msg;
-        
-      try
+      zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_CLIENT);
+   
+      subscriber.setsockopt(ZMQ_RCVTIMEO, 1000);
+      subscriber.setsockopt(ZMQ_LINGER, 0);
+   
+      subscriber.connect(srvstr);
+   
+      zmq::message_t request(imageName.data(), imageName.size());
+      
+      #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
+      subscriber.send(request, zmq::send_flags::none);
+      #else
+      subscriber.send(request);
+      #endif
+      bool reconnect = false;
+      
+      std::string shMemImName;
+      if(localImageName == "") shMemImName = imageName;
+      else shMemImName = localImageName;
+      
+      while(!m_timeToDie && !reconnect) //Inner loop waits for each new image and processes it as it comes in.
       {
+         zmq::message_t msg;
+           
          #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
-            subscriber.recv(msg);
+         zmq::detail::recv_result_t recvd;
          #else
-            subscriber.recv(&msg); 
+         size_t recvd; 
          #endif
-      }
-      catch(...)
-      {
-         if(m_timeToDie) break; //This will be if signaled during shutdown
-         throw; //otherwise uh-oh
-      }
-
-      char * raw_image= (char *) msg.data();
-      
-      new_atype = *( (uint8_t *) (raw_image + typeOffset) );
-      new_nx = *( (uint32_t *) (raw_image + size0Offset));
-      new_ny = *( (uint32_t *) (raw_image + size1Offset));
-      
-      if( nx != new_nx || ny != new_ny || atype != new_atype)
-      {
-         imsize[0] = new_nx;
-         imsize[1] = new_ny;
-         imsize[2] = 0;
          
-         if(opened)
+         try
          {
-            ImageStreamIO_destroyIm(&image);
+            #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
+               recvd = subscriber.recv(msg);
+            #else
+               recvd = subscriber.recv(&msg); 
+            #endif
+         }
+         catch(...)
+         {
+            if(m_timeToDie) break; //This will true be if signaled during shutdown            
+            //otherwise, this is an error
+            throw;
+         }
+      
+         #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
+         if(!recvd)
+         {
+            reconnect = true;
+            break;
+         }
+         #else
+         if(recvd == 0)
+         {
+            reconnect = true;
+            break;
+         }
+         #endif
+         
+         char * raw_image= (char *) msg.data();
+         
+         new_atype = *( (uint8_t *) (raw_image + typeOffset) );
+         new_nx = *( (uint32_t *) (raw_image + size0Offset));
+         new_ny = *( (uint32_t *) (raw_image + size1Offset));
+         
+         if( nx != new_nx || ny != new_ny || atype != new_atype)
+         {
+            imsize[0] = new_nx;
+            imsize[1] = new_ny;
+            imsize[2] = 0;
+            
+            if(opened)
+            {
+               ImageStreamIO_destroyIm(&image);
+            }
+            
+            ImageStreamIO_createIm(&image, shMemImName.c_str(), 2, imsize, new_atype, 1, 0);
+            
+            opened = true;
          }
          
-         ImageStreamIO_createIm(&image, shMemImName.c_str(), 2, imsize, new_atype, 1, 0);
+         atype = new_atype;
+         nx = new_nx;
+         ny = new_ny;
          
-         opened = true;
-      }
       
-      atype = new_atype;
-      nx = new_nx;
-      ny = new_ny;
+         //This is not a rolling buffer.
+         curr_image = 0;
+         
+         size_t type_size = ImageStreamIO_typesize(image.md[0].datatype);
       
-
-      //This is not a rolling buffer.
-      curr_image = 0;
+         image.md[0].write=1;
       
-      size_t type_size = ImageStreamIO_typesize(image.md[0].datatype);
-
-      image.md[0].write=1;
-
-      image.md[0].cnt0 = *( (uint64_t *) (raw_image + cnt0Offset));
-      image.md[0].atime.tv_sec = *( (uint64_t *) (raw_image + tv_secOffset));
-      image.md[0].atime.tv_nsec = *( (uint64_t *) (raw_image + tv_nsecOffset));
+         image.md[0].cnt0 = *( (uint64_t *) (raw_image + cnt0Offset));
+         image.md[0].atime.tv_sec = *( (uint64_t *) (raw_image + tv_secOffset));
+         image.md[0].atime.tv_nsec = *( (uint64_t *) (raw_image + tv_nsecOffset));
+         
+         
+         memcpy(image.array.SI8 + curr_image*nx*ny*type_size, raw_image + imageOffset, nx*ny*type_size);
+         
+         image.md[0].cnt1=0;
+         image.md[0].write=0;
+         ImageStreamIO_sempost(&image,-1);
+         
+         
+         //Here is where we can add client-specefic rate control!
+         
+         request.rebuild(imageName.data(), imageName.size());
+         //memcpy( request.data(), imageName.c_str(), imageName.size());
+         #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
+         subscriber.send(request, zmq::send_flags::none);
+         #else
+         subscriber.send(request);
+         #endif
+         
+      } // inner loop (image processing)
       
+      subscriber.close(); //close so that unsent messages are dropped.
       
-      memcpy(image.array.SI8 + curr_image*nx*ny*type_size, raw_image + imageOffset, nx*ny*type_size);
-      
-        
-
-      image.md[0].cnt1=0;
-      image.md[0].write=0;
-      ImageStreamIO_sempost(&image,-1);
-      
-      request.rebuild(imageName.data(), imageName.size());
-      //memcpy( request.data(), imageName.c_str(), imageName.size());
-      //subscriber.send(request, zmq::send_flags::none);
-      subscriber.send(request);
-   }
-
+   }// outer loop (checking stale connections)
+   
    if(opened) ImageStreamIO_closeIm(&image);
-   
-   subscriber.close();
-   
+      
 } // milkzmqClient::imageThreadExec()
 
 inline
