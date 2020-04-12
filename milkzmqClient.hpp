@@ -365,8 +365,8 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
    
    zmq::message_t request(imageName.data(), imageName.size());
    //memcpy( request.data(), imageName.c_str(), imageName.size());
-   subscriber.send(request, zmq::send_flags::none);
-   
+   //subscriber.send(request, zmq::send_flags::none);
+   subscriber.send(request);
    
    std::string shMemImName;
    if(localImageName == "") shMemImName = imageName;
@@ -453,7 +453,8 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
       
       request.rebuild(imageName.data(), imageName.size());
       //memcpy( request.data(), imageName.c_str(), imageName.size());
-      subscriber.send(request, zmq::send_flags::none);
+      //subscriber.send(request, zmq::send_flags::none);
+      subscriber.send(request);
    }
 
    if(opened) ImageStreamIO_closeIm(&image);

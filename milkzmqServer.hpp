@@ -448,7 +448,8 @@ void milkzmqServer::serverThreadExec()
       try
       {
          //Wait for next request from a client
-         m_server->recv (request);
+         //m_server->recv (request)i;
+         m_server->recv(&request);
       }
       catch(...)
       {
@@ -685,8 +686,9 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                
                try
                {
-                  m_server->send(frame, zmq::send_flags::none);
-                  
+                  //m_server->send(frame, zmq::send_flags::none);
+                  m_server->send(frame);
+
                   std::lock_guard<std::mutex> guard(m_mapMutex);
                   m_requestorMap[rid][imageName] = false;
                }
