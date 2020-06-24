@@ -470,7 +470,7 @@ void milkzmqServer::serverThreadExec()
       {
          std::lock_guard<std::mutex> guard(m_mapMutex);
       
-         //All we do is set the received flag to for this client and shmim, which tells the image thread to go ahead and send next time.
+         //All we do is set the received flag to true for this client and shmim, which tells the image thread to go ahead and send next time.
          m_requestorMap[routing_id][reqShmim] = true;      
       }
    }
@@ -604,6 +604,8 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
       
       uint64_t lastCnt0 = -1;
       
+      std::vector<routing_id_t> rids;
+      
       while(!m_timeToDie && !m_restart)
       {
          uint64_t cnt0 = image.md[0].cnt0;
@@ -654,9 +656,11 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
             if(m_timeToDie || m_restart) break; //Check for exit signals
             
 
-            routing_id_t rid = 0;
-            bool found = false; //docs aren't clear if routing_id can be 0
+            //routing_id_t rid = 0;
+            //bool found = false; //docs aren't clear if routing_id can be 0
 
+            rids.clear();
+            
             //We lock the mutex during lookup, but unlock so that it isn't blocked during the send call.
             //Scope for map mutex
             {
@@ -670,8 +674,7 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                   {
                      if(it->second[imageName] == true)
                      {
-                        rid = it->first;
-                        found = true;
+                        rids.push_back(it->first);
                         break;
                      }
                   }
@@ -679,27 +682,30 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                }
             }
             
-            if( found )
+            if( rids.size() > 0 )
             {
                zmq::message_t frame( msg, msgSz );
-               frame.set_routing_id(rid);
                
-               try
+               for(size_t rid = 0; rid < rids.size(); ++rid)
                {
-                  #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
-                  m_server->send(frame, zmq::send_flags::none);
-                  #else
-                  m_server->send(frame);
-                  #endif
+                  frame.set_routing_id(rids[rid]);
+                  try
+                  {
+                     #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
+                     m_server->send(frame, zmq::send_flags::none);
+                     #else
+                     m_server->send(frame);
+                     #endif
                   
-                  std::lock_guard<std::mutex> guard(m_mapMutex);
-                  m_requestorMap[rid][imageName] = false;
-               }
-               catch(...)
-               {
-                  //Assume this means the client is no longer connected
-                  std::lock_guard<std::mutex> guard(m_mapMutex);
-                  m_requestorMap.erase(rid);
+                     std::lock_guard<std::mutex> guard(m_mapMutex);
+                     m_requestorMap[rids[rid]][imageName] = false;
+                  }
+                  catch(...)
+                  {
+                     //Assume this means the client is no longer connected
+                     std::lock_guard<std::mutex> guard(m_mapMutex);
+                     m_requestorMap.erase(rids[rid]);
+                  }
                }
             }
             
