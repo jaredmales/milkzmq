@@ -675,7 +675,6 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                      if(it->second[imageName] == true)
                      {
                         rids.push_back(it->first);
-                        break;
                      }
                   }
                   ++it;
@@ -684,10 +683,9 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
             
             if( rids.size() > 0 )
             {
-               zmq::message_t frame( msg, msgSz );
-               
                for(size_t rid = 0; rid < rids.size(); ++rid)
                {
+                  zmq::message_t frame( msg, msgSz);
                   frame.set_routing_id(rids[rid]);
                   try
                   {
