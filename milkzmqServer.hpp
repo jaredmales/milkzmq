@@ -481,7 +481,7 @@ void milkzmqServer::serverThreadExec()
 inline
 int milkzmqServer::serverThreadKill()
 {
-   pthread_kill(m_serverThread.native_handle(), SIGTERM);
+   pthread_kill(m_serverThread.native_handle(), SIGQUIT);
    return 0;
 }
 
@@ -521,7 +521,7 @@ int milkzmqServer::imageThreadStart(size_t thno)
 inline
 int milkzmqServer::imageThreadKill(size_t thno)
 {
-   pthread_kill(m_imageThreads[thno].m_thread->native_handle(), SIGTERM);
+   pthread_kill(m_imageThreads[thno].m_thread->native_handle(), SIGQUIT);
    return 0;
 }
 
