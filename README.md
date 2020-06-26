@@ -22,7 +22,7 @@ You need the `milk` library, usually as part of `CACAO`.
 
 #### ZeroMQ
 
-You need ZeroMQ: http://zeromq.org/intro:get-the-software, download package for your arch
+You need ZeroMQ: http://zeromq.org/intro:get-the-software, download package for your arch.  Note: you need the draft API.  Unfortunately this is very unstable, and can stop working from minor version to minor version.  Known working versions are libzmq.so.5.2.2 and cppzmq version 4.6.0. 
 
 For Ubuntu 18.04:
 ```
