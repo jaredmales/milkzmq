@@ -35,8 +35,8 @@ $ apt-get install libzmq3-dev
 On CentOS 7:
 ```
 $ sudo su
-$ yum-config-manager --add-repo https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/CentOS_7/network:messaging:zeromq:release-stable.repo
-$ yum install zeromq-devel
+$ yum-config-manager --add-repo https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-draft/CentOS_7/network:messaging:zeromq:release-draft.repo
+$ yum install -y zeromq-devel libzmq5
 ```
 
 #### cppzmq
@@ -77,37 +77,47 @@ Now on this remote machine an `ImageStreamIO` image will be available at `/tmp/i
 
 Several parameters can be set for each program.  The following shows the output of the online `-h` help.
 
-### milk0Server
-
+### milkzmqServer
+How to run the server.  To get help:
 ```
-$ milkzmqServer -h
-milkzmqServer:
+$ ./milkzmqServer -h
+```
+will output
+```
+./milkzmqServer 
 
-usage: milkzmqServer [options] shm-name
+usage: ./milkzmqServer [options] shm-name [shm-names]
 
-   shm-name is the root of the ImageStreamIO shared memory image file.
+   shm-name is the root of the ImageStreamIO shared memory image file(s).
             If the full path is "/tmp/image00.im.shm" then shm-name=image00
+            At least one must be specified.
 options:
     -h    print this message and exit.
     -p    specify the port number of the server [default = 5556].
-    -u    specify the loop sleep time in usecs [default = 100].
-    -f    specify the F.P.S. target [default = 30.0].
-    -s    specify the semaphore number [default=0].
+    -u    specify the loop sleep time in usecs [default = 1000].
+    -f    specify the F.P.S. target [default = 10.0].
 ```
 
-### milk0Client
+### milkzmqClient
+How to run the client.  To get help:
 ```
-$ milkzmqClient -h
-milkzmqClient:
+$ ./milkzmqClient -h
+```
+will output
+```
+./milkzmqClient: 
 
-usage: ./milkzmqClient [options] remote-host shm-name
+usage: ./milkzmqClient [options] remote-host shm-name [shm-names]
 
    remote-host is the address of the remote host where milkzmqServer is running.
 
    shm-name is the root of the ImageStreamIO shared memory image file.
             If the full path is "/tmp/image00.im.shm" then shm-name=image00
+            At least one shm-name must be specified.
+            To specify a different local name, use a /.  Example: "image00/local_image00"
+            will stream the remote image00 locally as local_image00.
 options:
     -h    print this message and exit.
     -p    specify the port number of the server [default = 5556].
-    -l    specify the local shared memory file name [default is same as shm-name].
+
 ```

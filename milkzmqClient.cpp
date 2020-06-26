@@ -84,11 +84,14 @@ void usage( const char * msg = 0 )
    
    if(msg) std::cerr << "error: " << msg << "\n\n";
    
-   std::cerr << "usage: " << argv0 << " [options] remote-host shm-name\n\n";
+   std::cerr << "usage: " << argv0 << " [options] remote-host shm-name [shm-names]\n\n";
    
    std::cerr << "   remote-host is the address of the remote host where milkzmqServer is running.\n\n";
    std::cerr << "   shm-name is the root of the ImageStreamIO shared memory image file.\n";
    std::cerr << "            If the full path is \"/tmp/image00.im.shm\" then shm-name=image00\n";
+   std::cerr << "            At least one shm-name must be specified.\n";
+   std::cerr << "            To specify a different local name, use a /.  Example: \"image00/local_image00\"\n";
+   std::cerr << "            will stream the remote image00 locally as local_image00.\n";
    std::cerr << "options:\n";
    std::cerr << "    -h    print this message and exit.\n";
    std::cerr << "    -p    specify the port number of the server [default = 5556].\n";

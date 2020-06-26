@@ -125,7 +125,7 @@ void usage( const char * msg = 0 )
    
    if(msg) std::cerr << "error: " << msg << "\n\n";
    
-   std::cerr << "usage: " << argv0 << " [options] shm-name [shm-name]\n\n";
+   std::cerr << "usage: " << argv0 << " [options] shm-name [shm-names]\n\n";
    
    std::cerr << "   shm-name is the root of the ImageStreamIO shared memory image file(s).\n";
    std::cerr << "            If the full path is \"/tmp/image00.im.shm\" then shm-name=image00\n";
