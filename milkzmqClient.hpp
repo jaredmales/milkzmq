@@ -392,7 +392,9 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
       {
          zmq::message_t msg;
            
-         #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
+         #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 7, 0))
+         zmq::recv_result_t recvd;
+         #elif(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
          zmq::detail::recv_result_t recvd;
          #else
          size_t recvd; 
