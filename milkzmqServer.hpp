@@ -683,6 +683,7 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
             
             if( rids.size() > 0 )
             {
+               //std::cerr << imageName << " updating\n";
                for(size_t rid = 0; rid < rids.size(); ++rid)
                {
                   zmq::message_t frame( msg, msgSz);
@@ -690,7 +691,7 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                   try
                   {
                      #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
-                     m_server->send(frame, zmq::send_flags::none);
+                     m_server->send(frame, zmq::send_flags::ZMQ_DONTWAIT);
                      #else
                      m_server->send(frame);
                      #endif
@@ -706,6 +707,10 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                   }
                }
             }
+            //else
+            //{
+            //   std::cerr << imageName << " no update\n";
+	    //}
             
             
             
