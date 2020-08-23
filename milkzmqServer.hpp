@@ -691,7 +691,7 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                   try
                   {
                      #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
-                     m_server->send(frame, zmq::send_flags::ZMQ_DONTWAIT);
+                     m_server->send(frame, zmq::send_flags::dontwait);
                      #else
                      m_server->send(frame, ZMQ_DONTWAIT);
                      #endif
