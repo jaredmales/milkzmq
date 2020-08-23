@@ -686,14 +686,14 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                //std::cerr << imageName << " updating\n";
                for(size_t rid = 0; rid < rids.size(); ++rid)
                {
-                  zmq::message_t frame( msg, msgSz);
+                  zmq::message_t frame( msg, msgSz, nullptr, nullptr);//this version will not copy the data.
                   frame.set_routing_id(rids[rid]);
                   try
                   {
                      #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
                      m_server->send(frame, zmq::send_flags::ZMQ_DONTWAIT);
                      #else
-                     m_server->send(frame);
+                     m_server->send(frame, ZMQ_DONTWAIT);
                      #endif
                   
                      std::lock_guard<std::mutex> guard(m_mapMutex);
