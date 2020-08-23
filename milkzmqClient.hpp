@@ -393,9 +393,14 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
    {
       zmq::socket_t subscriber (*m_ZMQ_context, ZMQ_CLIENT);
    
+      #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
+      subscriber.set(zmq::sockopt::linger, 1000);
+      subscriber.set(zmq::sockopt::linger, 0);
+      #else
       subscriber.setsockopt(ZMQ_RCVTIMEO, 1000);
       subscriber.setsockopt(ZMQ_LINGER, 0);
-   
+      #endif
+      
       subscriber.connect(srvstr);
    
       zmq::message_t request(imageName.data(), imageName.size());
@@ -411,8 +416,10 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
       bool first = true;
       bool connected = false;
       
+      #ifdef MZMQ_FPS_MONITORING
       int Nrecvd = 100;
-      double t0, t1;
+      double t0 = 0, t1;
+      #endif
       
       while(!m_timeToDie && !reconnect) //Inner loop waits for each new image and processes it as it comes in.
       {
@@ -446,6 +453,7 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
          {
             if(zmq_errno() == EAGAIN) //If we timed out, just re-send the request
             {
+               request.rebuild(imageName.data(), imageName.size());
                subscriber.send(request, zmq::send_flags::none);
                continue;
             }
@@ -460,6 +468,7 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
          {
             if(zmq_errno() == EAGAIN) //If we timed out, just re-send the request
             {
+               request.rebuild(imageName.data(), imageName.size());
                subscriber.send(request);
                continue;
             }
@@ -523,20 +532,21 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
          image.md[0].write=0;
          ImageStreamIO_sempost(&image,-1);
          
+         #ifdef MZMQ_FPS_MONITORING
          if(Nrecvd >= 10)
          {
             Nrecvd = 0;
             t0 = get_curr_time();
          }
-         
-         ++Nrecvd;
+         else ++Nrecvd;
          
          if(Nrecvd >= 10)
          {
             t1 = get_curr_time() - t0;
             std::cerr << imageName << " averaging " << Nrecvd/t1 << " FPS received.\n";
          }
-         
+         #endif
+
          //Here is where we can add client-specefic rate control!
          
          request.rebuild(imageName.data(), imageName.size());
