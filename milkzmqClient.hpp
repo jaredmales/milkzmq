@@ -409,6 +409,7 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
       
       
       bool first = true;
+      bool connected = false;
       
       while(!m_timeToDie && !reconnect) //Inner loop waits for each new image and processes it as it comes in.
       {
@@ -440,12 +441,28 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
          #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
          if(!recvd)
          {
+            if(zmq_errno() == EAGAIN) //If we timed out, just re-send the request
+            {
+               subscriber.send(request, zmq::send_flags::none);
+               continue;
+            }
+                        
+            if(connected) reportNotice("Disconnected from " + imageName);
+            connected = false;
             reconnect = true;
             break;
          }
          #else
          if(recvd == 0)
          {
+            if(zmq_errno() == EAGAIN) //If we timed out, just re-send the request
+            {
+               subscriber.send(request);
+               continue;
+            }
+            
+            if(connected) reportNotice("Disconnected from " + imageName);
+            connected = false;
             reconnect = true;
             break;
          }
@@ -454,6 +471,7 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
          if(first)
          {
             reportNotice("Connected to " + imageName);
+            connected = true;
             first = false;
          }
          
