@@ -29,6 +29,7 @@
 #define milkzmqServer_hpp
 
 #include <signal.h>
+#include <fcntl.h>  // for open
 
 #include <unordered_map>
 #include <mutex>
@@ -257,6 +258,9 @@ public:
                              const std::string & file,
                              int line
                            );
+   
+   virtual void reportWarning( const std::string & msg );
+   
    ///@}
 };
 
@@ -558,8 +562,27 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
       opened = false;
       m_restart = false; //Set this up front, since we're about to restart.
       
+      int printed = 0;
       while(!opened && !m_timeToDie && !m_restart)
       {
+         //b/c ImageStreamIO prints every single time, and latest version don't support stopping it yet, and that isn't thread-safe-able anyway
+         //we do our own checks.  This is the same code in ImageStreamIO_openIm...
+         int SM_fd;
+         char SM_fname[200];
+         ImageStreamIO_filename(SM_fname, sizeof(SM_fname), imageName.c_str());
+         SM_fd = open(SM_fname, O_RDWR);
+         if(SM_fd == -1)
+         {
+            if(!printed) reportWarning("ImageStream " + imageName + " not found (yet).  Retrying . . .");
+            printed = 1;
+            milkzmq::sleep(1); //be patient
+            continue;
+         }
+         
+         //Found and opened,  close it and then use ImageStreamIO
+         printed = 0;
+         close(SM_fd);
+         
          if( ImageStreamIO_openIm(&image, imageName.c_str()) == 0)
          {
             if(image.md[0].sem <= 0) 
@@ -575,7 +598,7 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
          }
          else
          {
-            isio_err_to_ignore = IMAGESTREAMIO_FILEOPEN;
+            //isio_err_to_ignore = IMAGESTREAMIO_FILEOPEN;
             milkzmq::sleep(1); //be patient
          }
       }
@@ -753,6 +776,12 @@ void milkzmqServer::reportError( const std::string & msg,
                                 )
 {
    milkzmq::reportError(m_argv0, msg, file, line);
+}
+
+inline 
+void milkzmqServer::reportWarning( const std::string & msg )
+{
+   milkzmq::reportWarning(m_argv0, msg);
 }
 
 } //namespace milkzmq 

@@ -83,6 +83,15 @@ void reportError( const std::string & argv0, ///< [in] the name of the applicati
    std::cerr << "  at " << file << " line " << line << "\n"; 
 }
 
+/// Report a warning to the user using stderr.
+inline 
+void reportWarning( const std::string & argv0, ///< [in] the name of the application reporting the warning
+                    const std::string & msg    ///< [in] the warning message
+                  )
+{
+   std::cerr << argv0  <<": " << msg << "\n";
+}
+
 } //namespace milkzmq 
 
 #endif //milkZeroUtils_hpp
