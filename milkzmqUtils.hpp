@@ -33,6 +33,8 @@
 #include <chrono>
 #include <thread>
 
+#include <ImageStreamIO.h>
+
 namespace milkzmq 
 {
 
@@ -71,6 +73,33 @@ double get_curr_time()
    return ((double)tsp.tv_sec) + ((double)tsp.tv_nsec)/1e9;
 }
 
+/// Report status (with LOG_INFO level of priority) to the user using stderr.
+inline 
+void reportInfo( const std::string & argv0, ///< [in] the name of the application reporting status
+                 const std::string & msg    ///< [in] the status message
+               )
+{
+   std::cerr << argv0  <<": " << msg << "\n";
+}
+
+/// Report status (with LOG_NOTICE level of priority)  to the user using stderr.
+inline 
+void reportNotice( const std::string & argv0, ///< [in] the name of the application reporting status
+                   const std::string & msg    ///< [in] the status message
+                 )
+{
+   std::cerr << argv0  <<": " << msg << "\n";
+}
+
+/// Report a warning to the user using stderr.
+inline 
+void reportWarning( const std::string & argv0, ///< [in] the name of the application reporting the warning
+                    const std::string & msg    ///< [in] the warning message
+                  )
+{
+   std::cerr << argv0  <<": " << msg << "\n";
+}
+
 /// Report an error to the user using stderr.
 inline 
 void reportError( const std::string & argv0, ///< [in] the name of the application reporting the error
@@ -83,13 +112,24 @@ void reportError( const std::string & argv0, ///< [in] the name of the applicati
    std::cerr << "  at " << file << " line " << line << "\n"; 
 }
 
-/// Report a warning to the user using stderr.
-inline 
-void reportWarning( const std::string & argv0, ///< [in] the name of the application reporting the warning
-                    const std::string & msg    ///< [in] the warning message
-                  )
+///Global needed for ImageStreamIO error reporting.
+std::string milkzmq_argv0;
+
+/// ImageStreamIO error reporting function to pass to library.  
+errno_t milkzmq_printError( const char *file, const char *func, int line, errno_t code, char *errmessage )
 {
-   std::cerr << argv0  <<": " << msg << "\n";
+   
+   std::string msg = "ImageStreamIO (";
+   msg += func;
+   msg += ") Error Msg: ";
+   msg += errmessage;
+   msg += " [code: ";
+   msg += std::to_string(code);
+   msg += "]";
+   
+   reportError(milkzmq_argv0, msg, file, line);
+   
+   return IMAGESTREAMIO_SUCCESS;
 }
 
 } //namespace milkzmq 

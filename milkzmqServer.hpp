@@ -38,12 +38,12 @@
 #define ZMQ_CPP11
 #include <zmq.hpp>
 
-#include <ImageStreamIO.h>
-
 #include "milkzmqUtils.hpp"
 
 namespace milkzmq 
 {
+
+
 
 ///\todo need to handle errors/exceptions from zmq API
 class milkzmqServer
@@ -249,18 +249,27 @@ public:
      */ 
    static bool m_restart;
    
-   /** \name Error Handling
-     * Errors are reported using a virtual function, so that custom handling can be implemented.
+   /** \name Status and Error Handling
+     * Status updates, warnings, and errors are reported using virtual functions, so that custom handling can be implemented.
      *
      * @{
      */
-   virtual void reportError( const std::string & msg,
-                             const std::string & file,
-                             int line
+   
+   /// Report status (with LOG_INFO level of priority) to the user using stderr.
+   virtual void reportInfo( const std::string & msg /**< [in] the status message */);
+   
+   /// Report status (with LOG_NOTICE level of priority) to the user using stderr.
+   virtual void reportNotice( const std::string & msg /**< [in] the status message */);
+   
+   /// Report a warning to the user using stderr.
+   virtual void reportWarning( const std::string & msg /**< [in] the warning message */);
+   
+   /// Report an error to the user using stderr.
+   virtual void reportError( const std::string & msg,  ///< [in] the error message 
+                             const std::string & file, ///< [in] the name of the file where the error occurred
+                             int line                  ///< [in] the line number of the error
                            );
-   
-   virtual void reportWarning( const std::string & msg );
-   
+
    ///@}
 };
 
@@ -270,6 +279,9 @@ bool milkzmqServer::m_restart = false;
 inline
 milkzmqServer::milkzmqServer()
 {
+   milkzmq_argv0 = m_argv0; //set the global
+   ImageStreamIO_set_printError(milkzmq_printError);
+      
    m_ZMQ_context = new zmq::context_t;
 }
 
@@ -303,6 +315,8 @@ inline
 int milkzmqServer::argv0( const std::string & av0 )
 {
    m_argv0 = av0;
+   milkzmq_argv0 = m_argv0; //set the global
+   
    return 0;
 }
 
@@ -429,7 +443,7 @@ void milkzmqServer::serverThreadExec()
 {   
    std::string srvstr = "tcp://*:" + std::to_string(m_imagePort);
    
-   std::cerr << "milkzmqServer: Beginning service at " << srvstr << "\n";
+   reportInfo("Beginning service at " + srvstr);
    
    //Should be nullptr, but in case this gets called twice.
    if(m_server)
@@ -529,14 +543,7 @@ int milkzmqServer::imageThreadKill(size_t thno)
    return 0;
 }
 
-errno_t isio_err_to_ignore = 0;
-errno_t new_printError( const char *file, const char *func, int line, errno_t code, char *errmessage )
-{
-   if(code == isio_err_to_ignore) return IMAGESTREAMIO_SUCCESS;
-   
-   std::cerr << "ImageStreamIO Error:\n\tFile: " << file << "\n\tLine: " << line << "\n\tFunc: " << func << "\n\tMsg:  " << errmessage << std::endl; 
-   return IMAGESTREAMIO_SUCCESS;
-}
+
 
 inline
 void milkzmqServer::imageThreadExec(const std::string & imageName)
@@ -545,7 +552,7 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
 
    size_t type_size = 0; ///< The size, in bytes, of the image data type
 
-   ImageStreamIO_set_printError(new_printError);
+
       
    bool opened = false;
    
@@ -598,15 +605,12 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
          }
          else
          {
-            //isio_err_to_ignore = IMAGESTREAMIO_FILEOPEN;
             milkzmq::sleep(1); //be patient
          }
       }
-      isio_err_to_ignore = 0;
-      
       if(m_timeToDie || !opened) return;
     
-      std::cerr << "\nConnected to " << imageName << "\n";
+      reportNotice("Connected to ImageStream " + imageName);
       
       int curr_image;
       uint8_t atype;
@@ -706,7 +710,6 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
             
             if( rids.size() > 0 )
             {
-               //std::cerr << imageName << " updating\n";
                for(size_t rid = 0; rid < rids.size(); ++rid)
                {
                   zmq::message_t frame( msg, msgSz, nullptr, nullptr);//this version will not copy the data.
@@ -729,13 +732,7 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                      m_requestorMap.erase(rids[rid]);
                   }
                }
-            }
-            //else
-            //{
-            //   std::cerr << imageName << " no update\n";
-	    //}
-            
-            
+            }            
             
             double ct = get_curr_time();
             delta += m_fpsGain * (ct-lastSend - 1.0/m_fpsTgt);
@@ -745,8 +742,6 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
          }
          else
          {
-            //if(errno != EAGAIN) break;
-
             if(image.md[0].sem <= 0) break; //Indicates that the server has cleaned up.
             
             milkzmq::microsleep(m_usecSleep);
@@ -770,12 +765,15 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
 } // milkzmqServer::imageThreadExec()
 
 inline 
-void milkzmqServer::reportError( const std::string & msg,
-                                  const std::string & file,
-                                  int line
-                                )
+void milkzmqServer::reportInfo( const std::string & msg )
 {
-   milkzmq::reportError(m_argv0, msg, file, line);
+   milkzmq::reportInfo(m_argv0, msg);
+}
+
+inline 
+void milkzmqServer::reportNotice( const std::string & msg )
+{
+   milkzmq::reportNotice(m_argv0, msg);
 }
 
 inline 
@@ -783,6 +781,16 @@ void milkzmqServer::reportWarning( const std::string & msg )
 {
    milkzmq::reportWarning(m_argv0, msg);
 }
+
+inline 
+void milkzmqServer::reportError( const std::string & msg,
+                                 const std::string & file,
+                                 int line
+                               )
+{
+   milkzmq::reportError(m_argv0, msg, file, line);
+}
+
 
 } //namespace milkzmq 
 

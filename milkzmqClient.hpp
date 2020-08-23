@@ -189,15 +189,27 @@ public:
    /// Signal the image thread to kill it.
    int imageThreadKill( size_t thno /**< [in] the thread to kill */ );
    
-   /** \name Error Handling
-     * Errors are reported using a virtual function, so that custom handling can be implemented.
+  /** \name Status and Error Handling
+     * Status updates, warnings, and errors are reported using virtual functions, so that custom handling can be implemented.
      *
      * @{
      */
-   virtual void reportError( const std::string & msg,  ///< [in] the error message
-                             const std::string & file, ///< [in] the file which is the source of the error (use __FILE__)
-                             int line                  ///< [in] the line number which is the source of the error (use __FILE__)
+   
+   /// Report status (with LOG_INFO level of priority) to the user using stderr.
+   virtual void reportInfo( const std::string & msg /**< [in] the status message */);
+   
+   /// Report status (with LOG_NOTICE level of priority) to the user using stderr.
+   virtual void reportNotice( const std::string & msg /**< [in] the status message */);
+   
+   /// Report a warning to the user using stderr.
+   virtual void reportWarning( const std::string & msg /**< [in] the warning message */);
+   
+   /// Report an error to the user using stderr.
+   virtual void reportError( const std::string & msg,  ///< [in] the error message 
+                             const std::string & file, ///< [in] the name of the file where the error occurred
+                             int line                  ///< [in] the line number of the error
                            );
+
    ///@}
 };
 
@@ -206,6 +218,9 @@ bool milkzmqClient::m_timeToDie = false;
 inline
 milkzmqClient::milkzmqClient()
 {
+   milkzmq_argv0 = m_argv0; //set the global
+   ImageStreamIO_set_printError(milkzmq_printError);
+   
    m_ZMQ_context = new zmq::context_t(1);
 }
 
@@ -233,6 +248,7 @@ inline
 int milkzmqClient::argv0( const std::string & av0 )
 {
    m_argv0 = av0;
+   milkzmq_argv0 = m_argv0; //set the global
    return 0;
 }
 
@@ -347,10 +363,17 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
 {   
    std::string srvstr = "tcp://" + m_address + ":" + std::to_string(m_imagePort);
    
-   std::cerr << "milkzmqClient: Beginning receive at " << srvstr << " for " << imageName << "\n";
+   reportInfo("Beginning receive at " + srvstr + " for " + imageName);
    
    
-   
+   std::string shMemImName;
+   if(localImageName == "") shMemImName = imageName;
+   else 
+   {
+      shMemImName = localImageName;
+      reportInfo("Writing " + imageName + " to " + shMemImName);
+   }
+      
    uint8_t new_atype, atype=0;
    uint64_t new_nx, nx =0;
    uint64_t new_ny, ny =0;
@@ -384,9 +407,8 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
       #endif
       bool reconnect = false;
       
-      std::string shMemImName;
-      if(localImageName == "") shMemImName = imageName;
-      else shMemImName = localImageName;
+      
+      bool first = true;
       
       while(!m_timeToDie && !reconnect) //Inner loop waits for each new image and processes it as it comes in.
       {
@@ -428,6 +450,12 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
             break;
          }
          #endif
+         
+         if(first)
+         {
+            reportNotice("Connected to " + imageName);
+            first = false;
+         }
          
          char * raw_image= (char *) msg.data();
          
@@ -503,10 +531,28 @@ int milkzmqClient::imageThreadKill(size_t thno)
 }
       
 inline 
+void milkzmqClient::reportInfo( const std::string & msg )
+{
+   milkzmq::reportInfo(m_argv0, msg);
+}
+
+inline 
+void milkzmqClient::reportNotice( const std::string & msg )
+{
+   milkzmq::reportNotice(m_argv0, msg);
+}
+
+inline 
+void milkzmqClient::reportWarning( const std::string & msg )
+{
+   milkzmq::reportWarning(m_argv0, msg);
+}
+
+inline 
 void milkzmqClient::reportError( const std::string & msg,
-                                  const std::string & file,
-                                  int line
-                                )
+                                 const std::string & file,
+                                 int line
+                               )
 {
    milkzmq::reportError(m_argv0, msg, file, line);
 }
