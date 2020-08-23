@@ -411,6 +411,9 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
       bool first = true;
       bool connected = false;
       
+      int Nrecvd = 100;
+      double t0, t1;
+      
       while(!m_timeToDie && !reconnect) //Inner loop waits for each new image and processes it as it comes in.
       {
          zmq::message_t msg;
@@ -520,15 +523,28 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
          image.md[0].write=0;
          ImageStreamIO_sempost(&image,-1);
          
+         if(Nrecvd >= 10)
+         {
+            Nrecvd = 0;
+            t0 = get_curr_time();
+         }
+         
+         ++Nrecvd;
+         
+         if(Nrecvd >= 10)
+         {
+            t1 = get_curr_time() - t0;
+            std::cerr << imageName << " averaging " << Nrecvd/t1 << " FPS received.\n";
+         }
          
          //Here is where we can add client-specefic rate control!
          
          request.rebuild(imageName.data(), imageName.size());
          //memcpy( request.data(), imageName.c_str(), imageName.size());
          #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
-         subscriber.send(request, zmq::send_flags::none);
+         subscriber.send(request, zmq::send_flags::dontwait);
          #else
-         subscriber.send(request);
+         subscriber.send(request, ZMQ_DONTWAIT);
          #endif
          
       } // inner loop (image processing)
