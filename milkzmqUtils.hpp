@@ -35,17 +35,37 @@
 
 #include <ImageStreamIO.h>
 
+#include <xrif/xrif.h>
 namespace milkzmq 
 {
 
-constexpr size_t typeOffset = 128;
-constexpr size_t size0Offset = typeOffset+sizeof(uint8_t);
-constexpr size_t size1Offset = size0Offset + sizeof(uint32_t);
+   
+//The milkzmq messager format:
+/*
+ *  0-127    image stream name
+ *  128      data type code (uint8_t)
+ *  129-141  size 0 (uint32_t)
+   
+ */
+constexpr size_t headerSize = 256; ///< total size in bytes of the header,  gives room to grow!
+
+constexpr size_t nameSize = 128; ///< The size of the name field.
+constexpr size_t typeOffset = nameSize;                             ///< Start of data type field
+constexpr size_t size0Offset = typeOffset+sizeof(uint8_t);     ///< start of size0 field
+constexpr size_t size1Offset = size0Offset + sizeof(uint32_t); ///< start of size1 field
 constexpr size_t cnt0Offset = size1Offset + sizeof(uint32_t);
 constexpr size_t tv_secOffset = cnt0Offset + sizeof(uint64_t);
 constexpr size_t tv_nsecOffset = tv_secOffset + sizeof(uint64_t);
-constexpr size_t imageOffset = tv_nsecOffset + sizeof(uint64_t);
+constexpr size_t xrifDifferenceOffset = tv_nsecOffset + sizeof(uint64_t); ///< The XRIF encoding differencing method.  Generally must be PIXEL.
+constexpr size_t xrifReorderOffset = xrifDifferenceOffset + sizeof(int16_t);                  ///< The XRIF encoding reordering method.
+constexpr size_t xrifCompressOffset = xrifReorderOffset + sizeof(int16_t);                 ///< The XRIF encoding compression method.
+constexpr size_t xrifSizeOffset =  xrifCompressOffset + sizeof(int16_t);                    ///< The size of the compressed data.
+
+constexpr size_t endOfHeader = xrifSizeOffset + sizeof(uint16_t);         ///< The current end of the header.
+constexpr size_t imageOffset = headerSize;
       
+static_assert(endOfHeader <= imageOffset, "Header fields sum to larger than reserved headerSize");
+
 /// Sleep for a specified period in seconds.
 inline
 void sleep( unsigned sec /**< [in] the number of seconds to sleep. */)

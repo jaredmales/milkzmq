@@ -18,7 +18,7 @@ OPTIMIZE ?= -O3 -ffast-math
 
 CXXFLAGS += -std=c++14 $(OPTIMIZE)
 
-LDLIBS += -lzmq -lImageStreamIO -lpthread
+LDLIBS += -lzmq -lImageStreamIO -lxrif -lpthread
 
 all: $(TARGET) 
 

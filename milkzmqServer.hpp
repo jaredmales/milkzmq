@@ -67,6 +67,12 @@ protected:
    
    float m_fpsGain{0.1}; ///< Integrator gain on the fps trigger delta.
    
+   int m_xrifDifferenceMethod {XRIF_DIFFERENCE_NONE}; ///< The difference method to use.
+   
+   int m_xrifReorderMethod {XRIF_REORDER_NONE};   ///< The method to use for bit reordering.
+   
+   int m_xrifCompressMethod {XRIF_COMPRESS_NONE}; ///< The compression method used.
+   
    ///@}
    
    /** \name Internal State 
@@ -208,7 +214,55 @@ public:
      */ 
    float fpsGain();
    
+   /// Disable compression.
+   /** Turns off compression.
+     */
+   void noCompression();
+   
+   /// Enable default compression.
+   /** Default compression is XRIF_DIFFERENCE_PIXEL, XRIF_REORDER_BYTEPACK_RENIBBLE, XRIF_COMPRESS_LZ4.
+     */
+   void defaultCompression();
 
+   /// Set the XRIF encoding difference method.
+   /** 
+     * \returns 0 on success
+     * \returns -1 on error
+     */
+   int xrifDifferenceMethod(const int & xdm /**< [in] The new differencing method */);
+   
+   /// Get the XRIF encoding difference method.
+   /**
+     * \returns the current value of m_xrifDifferenceMethod.
+     */ 
+   int xrifDifferenceMethod();
+   
+   /// Set the XRIF encoding reordering method.
+   /** 
+     * \returns 0 on success
+     * \returns -1 on error
+     */
+   int xrifReorderMethod(const int & xrm /**< [in] The new reordering method */);
+   
+   /// Get the XRIF encoding reordering method.
+   /**
+     * \returns the current value of m_xrifReorderMethod.
+     */ 
+   int xrifReorderMethod();
+   
+   /// Set the XRIF encoding compression method.
+   /** 
+     * \returns 0 on success
+     * \returns -1 on error
+     */
+   int xrifCompressMethod(const int & xcm /**< [in] The new compression method */);
+   
+   /// Get the XRIF encoding compression method.
+   /**
+     * \returns the current value of m_xrifCompressMethod.
+     */ 
+   int xrifCompressMethod();
+   
 private:
    
    ///Server thread starter, called by serverThreadStart on thread construction.  Calls serverThreadExec.
@@ -406,6 +460,61 @@ float milkzmqServer::fpsGain()
 }
 
 inline
+void milkzmqServer::noCompression()
+{
+   xrifDifferenceMethod(XRIF_DIFFERENCE_NONE);
+   xrifReorderMethod(XRIF_REORDER_NONE);
+   xrifCompressMethod(XRIF_COMPRESS_NONE);
+}
+
+inline
+void milkzmqServer::defaultCompression()
+{
+   xrifDifferenceMethod(XRIF_DIFFERENCE_PIXEL);
+   xrifReorderMethod(XRIF_REORDER_BYTEPACK_RENIBBLE);
+   xrifCompressMethod(XRIF_COMPRESS_LZ4);
+}
+
+inline
+int milkzmqServer::xrifDifferenceMethod(const int & xdm)
+{
+   m_xrifDifferenceMethod = xdm;
+   return 0;
+}
+
+inline
+int milkzmqServer::xrifDifferenceMethod()
+{
+   return m_xrifDifferenceMethod;
+}
+
+inline
+int milkzmqServer::xrifReorderMethod(const int & xrm)
+{
+   m_xrifReorderMethod = xrm;
+   return 0;
+}
+
+inline
+int milkzmqServer::xrifReorderMethod()
+{
+   return m_xrifReorderMethod;
+}
+
+inline
+int milkzmqServer::xrifCompressMethod(const int & xcm)
+{
+   m_xrifCompressMethod = xcm;
+   return 0;
+}
+
+inline
+int milkzmqServer::xrifCompressMethod()
+{
+   return m_xrifCompressMethod;
+}
+   
+inline
 void milkzmqServer::internal_serverThreadStart( milkzmqServer * mzs )
 {
    mzs->serverThreadExec();
@@ -552,8 +661,6 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
 
    size_t type_size = 0; ///< The size, in bytes, of the image data type
 
-
-      
    bool opened = false;
    
    uint8_t * msg = nullptr;
@@ -564,6 +671,11 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
       milkzmq::sleep(1);
    }
    
+   xrif_error_t xe;
+   xrif_t xrif = nullptr;
+   xe = xrif_new(&xrif);
+   
+                              
    while(!m_timeToDie)
    {
       opened = false;
@@ -620,16 +732,24 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
       uint32_t last_sny = image.md[0].size[1];
       uint32_t last_snz = image.md[0].size[2];
 
+      //---- Set up xrif handle      
+      xe = xrif_set_size(xrif, last_snx, last_sny, 1, 1, last_atype);
+      xe = xrif_configure(xrif, m_xrifDifferenceMethod, m_xrifReorderMethod, m_xrifCompressMethod);
       
-      
-      size_t msgSz = imageOffset + last_snx*last_sny*type_size;
+      //---- Allocate the message
+      size_t msgSz = headerSize + xrif_min_raw_size(xrif); //This is maximum message size.
       msg = (uint8_t *) malloc(msgSz);
+      
+      //---- Allocate XRIF
+      xe = xrif_set_size(xrif, last_snx, last_sny, 1, 1, last_atype);
+      xe = xrif_set_raw(xrif, msg + headerSize, xrif_min_raw_size(xrif));
+      xe = xrif_allocate_reordered(xrif);
       
       double lastCheck = get_curr_time();
       double lastSend = get_curr_time();
       double delta = 0;
       
-      uint64_t lastCnt0 = -1;
+      uint64_t lastCnt0 = -1; //Force treating first image as new image
       
       std::vector<routing_id_t> rids;
       
@@ -638,7 +758,7 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
          uint64_t cnt0 = image.md[0].cnt0;
          if(cnt0 != lastCnt0)
          {
-            //Do a wait for max fps here.
+            //-------- Do a wait for max fps here.
             double currtime = get_curr_time();
             if( currtime - lastCheck < 1.0/m_fpsTgt-delta) 
             {
@@ -647,45 +767,7 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
             }
             lastCheck = currtime;
 
-            if(m_timeToDie || m_restart) break; //Check for exit signals
-         
-            atype = image.md[0].datatype;
-            snx = image.md[0].size[0];
-            sny = image.md[0].size[1];
-            snz = image.md[0].size[2];
-         
-            if( atype!= last_atype || snx != last_snx || sny != last_sny || snz != last_snz )
-            {
-               break; //exit the nearest while loop and get the new image setup.
-            }
-            
-            if(image.md[0].size[2] > 0) ///\todo change to naxis?
-            {
-               curr_image = image.md[0].cnt1;
-               if(curr_image < 0) curr_image = image.md[0].size[2] - 1;
-            }
-            else curr_image = 0;
-
-            cnt0 = image.md[0].cnt0;
-            
-            
-            memset(msg, 0, 128);
-            snprintf((char *) msg, 128, "%s", imageName.c_str());
-            *((uint8_t *) (msg + typeOffset)) = atype;
-            *((uint32_t *) (msg + size0Offset)) = snx;
-            *((uint32_t *) (msg + size1Offset)) = sny;
-            *((uint64_t *) (msg + cnt0Offset)) = image.md[0].cnt0;
-            *((uint64_t *) (msg + tv_secOffset)) = image.md[0].atime.tv_sec;
-            *((uint64_t *) (msg + tv_nsecOffset)) = image.md[0].atime.tv_nsec;
-            
-            memcpy(msg + imageOffset, image.array.SI8 + curr_image*snx*sny*type_size, snx*sny*type_size);
-                        
-            if(m_timeToDie || m_restart) break; //Check for exit signals
-            
-
-            //routing_id_t rid = 0;
-            //bool found = false; //docs aren't clear if routing_id can be 0
-
+            //-------- Check to see if anyone is subscribing to this stream...
             rids.clear();
             
             //We lock the mutex during lookup, but unlock so that it isn't blocked during the send call.
@@ -707,12 +789,63 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                   ++it;
                }
             }
+            if(rids.size() == 0) continue; //No subscribers
+            
+            if(m_timeToDie || m_restart) break; //Check for exit signals
+
+            //-------- Get size and look for changes
+            atype = image.md[0].datatype;
+            snx = image.md[0].size[0];
+            sny = image.md[0].size[1];
+            snz = image.md[0].size[2];
+         
+            if( atype!= last_atype || snx != last_snx || sny != last_sny || snz != last_snz )
+            {
+               break; //exit the nearest while loop and get the new image setup.
+            }
+            
+            if(image.md[0].size[2] > 0) ///\todo change to naxis?
+            {
+               curr_image = image.md[0].cnt1;
+               if(curr_image < 0) curr_image = image.md[0].size[2] - 1;
+            }
+            else curr_image = 0;
+
+            cnt0 = image.md[0].cnt0;
+            
+            
+            //XRIF Encoding...
+            //Because of xrif->compress_on_raw == true, xrif->raw_buffer = msg + headerSize, this results in the encoded message being written to the message buffer.
+            memcpy(xrif->raw_buffer, image.array.SI8 + curr_image*snx*sny*type_size, snx*sny*type_size);
+            xe = xrif_encode(xrif);
+   
+            std::cerr << imageName << " XRIF: " << xrif->compression_ratio*100. << "%\n";
+
+            //----Now construct header
+            memset(msg, 0, headerSize);
+            snprintf((char *) msg, nameSize, "%s", imageName.c_str());
+            *((uint8_t *) (msg + typeOffset)) = atype;
+            *((uint32_t *) (msg + size0Offset)) = snx;
+            *((uint32_t *) (msg + size1Offset)) = sny;
+            *((uint64_t *) (msg + cnt0Offset)) = image.md[0].cnt0;
+            *((uint64_t *) (msg + tv_secOffset)) = image.md[0].atime.tv_sec;
+            *((uint64_t *) (msg + tv_nsecOffset)) = image.md[0].atime.tv_nsec;
+            *((int16_t *) (msg + xrifDifferenceOffset)) = xrif->difference_method; 
+            *((int16_t *) (msg + xrifReorderOffset))    = xrif->reorder_method;
+            *((int16_t *) (msg + xrifCompressOffset))   = xrif->compress_method;
+            *((uint32_t *) (msg + xrifSizeOffset))  = xrif->compressed_size;
+            
+            
+            //memcpy(msg + imageOffset, image.array.SI8 + curr_image*snx*sny*type_size, snx*sny*type_size);
+            //memcpy(msg+imageOffset, xrif->raw_buffer, xrif->compressed_size);
+            
+            if(m_timeToDie || m_restart) break; //Check for exit signals
             
             if( rids.size() > 0 )
             {
                for(size_t rid = 0; rid < rids.size(); ++rid)
                {
-                  zmq::message_t frame( msg, msgSz, nullptr, nullptr);//this version will not copy the data.
+                  zmq::message_t frame( msg, headerSize + xrif->compressed_size, nullptr, nullptr);//this version will not copy the data.
                   frame.set_routing_id(rids[rid]);
                   try
                   {
@@ -734,7 +867,10 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                }
             }            
             
+            
             double ct = get_curr_time();
+            
+            //An integrator controller to keep frame rate on target
             delta += m_fpsGain * (ct-lastSend - 1.0/m_fpsTgt);
             lastSend = ct;
             lastCnt0 = cnt0;
@@ -756,11 +892,63 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
       
       free(msg);
       msg = nullptr;
+      
    }
+   
+   //-------- Send a 0 message to tell the other side to hangup...
+   std::vector<routing_id_t> rids;
+   //Scope for map mutex
+   {
+      std::lock_guard<std::mutex> guard(m_mapMutex);
+
+      std::unordered_map<routing_id_t, imageReceivedFlagMap_t>::iterator it = m_requestorMap.begin();
+            
+      while(it != m_requestorMap.end())
+      {
+         if( it->second.count(imageName) > 0 )
+         {
+            if(it->second[imageName] == true)
+            {
+               rids.push_back(it->first);
+            }
+         }
+         ++it;
+      }
+   }
+   if( rids.size() > 0 )
+   {
+      char zero = '\0';
+      
+      for(size_t rid = 0; rid < rids.size(); ++rid)
+      {
+         zmq::message_t frame( &zero, sizeof(char), nullptr, nullptr);
+         frame.set_routing_id(rids[rid]);
+         try
+         {
+            #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
+            m_server->send(frame, zmq::send_flags::dontwait);
+            #else
+            m_server->send(frame, ZMQ_DONTWAIT);
+            #endif
+         
+            std::lock_guard<std::mutex> guard(m_mapMutex);
+            m_requestorMap[rids[rid]][imageName] = false;
+         }
+         catch(...)
+         {
+            //Assume this means the client is no longer connected
+            std::lock_guard<std::mutex> guard(m_mapMutex);
+            m_requestorMap.erase(rids[rid]);
+         }
+      }
+   }            
+   
+   
    
    //One more check
    if(opened) ImageStreamIO_closeIm(&image);
    if(msg) free(msg);
+   if(xrif != nullptr) xrif_delete(xrif);
    
 } // milkzmqServer::imageThreadExec()
 

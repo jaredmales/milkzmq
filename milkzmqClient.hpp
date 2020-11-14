@@ -377,7 +377,13 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
    uint8_t new_atype, atype=0;
    uint64_t new_nx, nx =0;
    uint64_t new_ny, ny =0;
-      
+   
+   /* Initialize xrif
+    */
+   xrif_error_t xe;
+   xrif_t xrif;
+   xe = xrif_new(&xrif);
+   
    /* Initialize ImageStreamIO
     */
      
@@ -487,6 +493,13 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
             first = false;
          }
          
+         if(msg.size() <= headerSize) //If we don't get enough data, we reconnect to the server.
+         {
+            sleep(1); //Give server time to finish its shutdown.
+            reconnect= true;
+            continue;
+         }
+         
          char * raw_image= (char *) msg.data();
          
          new_atype = *( (uint8_t *) (raw_image + typeOffset) );
@@ -507,6 +520,13 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
             ImageStreamIO_createIm(&image, shMemImName.c_str(), 2, imsize, new_atype, 1, 0);
             
             opened = true;
+            
+            xe = xrif_set_size(xrif, new_nx, new_ny, 1, 1, new_atype);
+            xrif_set_difference_method(xrif, *((int16_t *) (raw_image + xrifDifferenceOffset)));
+            xrif_set_reorder_method(xrif, *((int16_t *) (raw_image + xrifReorderOffset)));
+            xrif_set_compress_method(xrif, *((int16_t *) (raw_image+ xrifCompressOffset)));
+            
+            xe = xrif_allocate(xrif);
          }
          
          atype = new_atype;
@@ -525,8 +545,12 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
          image.md[0].atime.tv_sec = *( (uint64_t *) (raw_image + tv_secOffset));
          image.md[0].atime.tv_nsec = *( (uint64_t *) (raw_image + tv_nsecOffset));
          
+         xrif->compressed_size =  *((uint32_t *) (raw_image + xrifSizeOffset));
          
-         memcpy(image.array.SI8 + curr_image*nx*ny*type_size, raw_image + imageOffset, nx*ny*type_size);
+         memcpy(xrif->raw_buffer, raw_image + imageOffset, xrif->compressed_size);
+         xe = xrif_decode(xrif);
+         
+         memcpy(image.array.SI8 + curr_image*nx*ny*type_size, xrif->raw_buffer, nx*ny*type_size);
          
          image.md[0].cnt1=0;
          image.md[0].write=0;
@@ -561,10 +585,30 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
       
       subscriber.close(); //close so that unsent messages are dropped.
       
+      //To trigger a full reconnect:
+      
+      if(opened) ImageStreamIO_closeIm(&image);
+      opened = false;
+      
+      atype=0;
+      nx =0;
+      ny =0;
+    
+      first = true;
+      connected = false;
+      
+      #ifdef MZMQ_FPS_MONITORING
+      Nrecvd = 100;
+      t0 = 0;
+      #endif
+      
+      reportNotice("Disconnected from " + imageName);
+         
    }// outer loop (checking stale connections)
    
    if(opened) ImageStreamIO_closeIm(&image);
-      
+   xrif_delete(xrif);
+   
 } // milkzmqClient::imageThreadExec()
 
 inline

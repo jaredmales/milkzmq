@@ -146,6 +146,7 @@ int main( int argc,
    int port = 5556;
    int usecSleep = 1000;
    float fpsTgt = 10.0;
+   bool compress = false;
    
    bool help = false;
 
@@ -154,7 +155,7 @@ int main( int argc,
    opterr = 0;
    
    int c;
-   while ((c = getopt (argc, argv, "hp:u:f:")) != -1)
+   while ((c = getopt (argc, argv, "hxp:u:f:")) != -1)
    {
       if(c == 'h')
       {
@@ -183,6 +184,9 @@ int main( int argc,
          case 'f':
            fpsTgt = atof(optarg);
            break;
+         case 'x':
+            compress = true;
+            break;
          case '?':
             char errm[256];
             if (optopt == 'p' || optopt == 'u' || optopt == 'f' || optopt == 's')
@@ -219,6 +223,7 @@ int main( int argc,
    
    mzs.argv0(argv0);
    mzs.imagePort(port);
+   if(compress) mzs.defaultCompression();
    
    for(int n=0; n < argc - optind; ++n)
    {
