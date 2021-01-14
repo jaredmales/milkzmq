@@ -737,6 +737,15 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
       xe = xrif_configure(xrif, m_xrifDifferenceMethod, m_xrifReorderMethod, m_xrifCompressMethod);
       
       //---- Allocate the message
+      if(msg != nullptr) 
+      {
+         //problem: if msg is not nullptr, then it means that it was allocated and 
+         //most likely handed over to zmq for sending.  We can't afford to free it 
+         //until zmq actually decides it's done with it.
+         //for now: we sleep.
+         sleep(2);
+         free(msg);
+      }
       size_t msgSz = headerSize + xrif_min_raw_size(xrif); //This is maximum message size.
       msg = (uint8_t *) malloc(msgSz);
       
@@ -819,7 +828,7 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
             memcpy(xrif->raw_buffer, image.array.SI8 + curr_image*snx*sny*type_size, snx*sny*type_size);
             xe = xrif_encode(xrif);
    
-            std::cerr << imageName << " XRIF: " << xrif->compression_ratio*100. << "%\n";
+            //std::cerr << imageName << " XRIF: " << xrif->compression_ratio*100. << "%\n";
 
             //----Now construct header
             memset(msg, 0, headerSize);
@@ -888,11 +897,7 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
       {
          ImageStreamIO_closeIm(&image);
          opened = false;
-      }
-      
-      free(msg);
-      msg = nullptr;
-      
+      } 
    }
    
    //-------- Send a 0 message to tell the other side to hangup...
