@@ -567,7 +567,9 @@ void milkzmqServer::serverThreadExec()
    m_server->bind(srvstr);
    
    char reqShmim[1024];
-   
+  
+   std::cerr << "here we go\n";
+ 
    while(!m_timeToDie) //loop on timeToDie in case this gets interrupted by SIGSEGV/SIGBUS
    {
       zmq::message_t request;
@@ -598,7 +600,7 @@ void milkzmqServer::serverThreadExec()
          std::lock_guard<std::mutex> guard(m_mapMutex);
       
          //All we do is set the received flag to true for this client and shmim, which tells the image thread to go ahead and send next time.
-         m_requestorMap[routing_id][reqShmim] = true;      
+         m_requestorMap[routing_id][reqShmim] = true;
       }
    }
             
@@ -890,6 +892,13 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
             if(image.md[0].sem <= 0) break; //Indicates that the server has cleaned up.
             
             milkzmq::microsleep(m_usecSleep);
+            
+            //If delay is long, we reset the loop b/c we aren't doing any good anyway, and this prevents over shoot on a reconnect
+            if(get_curr_time() - lastSend > 2*1.0/m_fpsTgt)
+            {
+               delta = 0;
+               lastSend = get_curr_time() - 2*1.0/m_fpsTgt;
+            }
          }
       }
 
