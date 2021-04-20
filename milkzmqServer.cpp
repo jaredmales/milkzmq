@@ -135,6 +135,7 @@ void usage( const char * msg = 0 )
    std::cerr << "    -p    specify the port number of the server [default = 5556].\n";
    std::cerr << "    -u    specify the loop sleep time in usecs [default = 1000].\n";
    std::cerr << "    -f    specify the F.P.S. target [default = 10.0].\n";
+   std::cerr << "    -x    turn on compression for INT16 and UINT16 types [default is off].\n";
    
 }
 
