@@ -736,7 +736,21 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
 
       //---- Set up xrif handle      
       xe = xrif_set_size(xrif, last_snx, last_sny, 1, 1, last_atype);
-      xe = xrif_configure(xrif, m_xrifDifferenceMethod, m_xrifReorderMethod, m_xrifCompressMethod);
+
+      //We check that this stream is actually compressable...
+      int xrifDifferenceMethod = m_xrifDifferenceMethod;
+      int xrifReorderMethod = m_xrifReorderMethod;
+      int xrifCompressMethod = m_xrifCompressMethod;
+      
+      if(last_atype != XRIF_TYPECODE_INT16 && last_atype != XRIF_TYPECODE_UINT16)
+      {
+         //Not compressable:
+         xrifDifferenceMethod = XRIF_DIFFERENCE_NONE;
+         xrifReorderMethod = XRIF_REORDER_NONE;
+         xrifCompressMethod = XRIF_COMPRESS_NONE;
+      }
+      
+      xe = xrif_configure(xrif, xrifDifferenceMethod, xrifReorderMethod, xrifCompressMethod);
       
       //---- Allocate the message
       if(msg != nullptr) 
