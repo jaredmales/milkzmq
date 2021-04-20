@@ -7,7 +7,7 @@
   */
 
 //***********************************************************************//
-// Copyright 2018 Jared R. Males (jaredmales@gmail.com)
+// Copyright 2018-2021 Jared R. Males (jaredmales@gmail.com)
 //
 // This file is part of milkzmq.
 //
