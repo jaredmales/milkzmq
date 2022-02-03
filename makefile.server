@@ -16,9 +16,11 @@ HEADER=milkzmqServer.hpp
 
 OPTIMIZE ?= -O3 -ffast-math
 
-CXXFLAGS += -std=c++14 $(OPTIMIZE)
+INCLUDES += -I/usr/local/milk/include
 
-LDLIBS += -lzmq -lImageStreamIO -lxrif -lpthread
+CXXFLAGS += -std=c++14 $(OPTIMIZE) $(INCLUDES)
+
+LDLIBS += -lzmq -L /usr/local/milk/lib -lImageStreamIO -lxrif -lpthread
 
 all: $(TARGET) 
 
