@@ -34,8 +34,6 @@
 #define ZMQ_CPP11
 #include <zmq.hpp>
 
-#include <ImageStreamIO.h>
-
 #include "milkzmqUtils.hpp"
 
 namespace milkzmq 
@@ -517,7 +515,7 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
                ImageStreamIO_destroyIm(&image);
             }
             
-            ImageStreamIO_createIm(&image, shMemImName.c_str(), 2, imsize, new_atype, 1, 0);
+            ImageStreamIO_createIm(&image, shMemImName.c_str(), 2, imsize, new_atype, 1, 0, 0);
             
             opened = true;
             

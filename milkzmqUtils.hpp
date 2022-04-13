@@ -33,7 +33,7 @@
 #include <chrono>
 #include <thread>
 
-#include <ImageStreamIO.h>
+#include <ImageStreamIO/ImageStreamIO.h>
 
 #include <xrif/xrif.h>
 namespace milkzmq 
