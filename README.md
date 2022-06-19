@@ -22,7 +22,20 @@ You need the `milk` library, usually as part of `CACAO`.
 
 #### ZeroMQ
 
-You need ZeroMQ: http://zeromq.org/intro:get-the-software, download package for your arch.  Note: you need the draft API.  Unfortunately this is very unstable, and can stop working from minor version to minor version.  This has been tested on up to libzmq.5.2.3 and cppzmq version 4.7.0.
+You need the *DRAFT API* of ZeroMQ: http://zeromq.org/intro:get-the-software, which means you can not use the version provided by default in Ubuntu or CentOS.  Follow the instructions below for your O/S. 
+
+
+For Ubuntu 22.04:
+As of 2022-06-18 the draft API version of the packages have not been released by 0MQ.  You can get the 20.04 packages to work, but you will need to do this manually.  This includes downloading libpgm from the 20.04 repo yourself.  You may also have to configure apt to use unsigned repos.
+
+
+For Ubuntu 20.04:
+```
+$ sudo su
+$ echo "deb https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-draft/xUbuntu_20.04/ ./" >> /etc/apt/sources.list
+$ wget https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-draft/xUbuntu_20.04/Release.key -O- | sudo apt-key add
+$ apt-get install libzmq3-dev
+```
 
 For Ubuntu 18.04:
 ```
@@ -47,13 +60,9 @@ $ cd cppzmq/
 $ sudo cp *.hpp /usr/local/include/
 ```
 
-#### Testing install of ZMQ:
+#### xrif
 
-To test your install get the examples:
-
-```
-git clone --depth=1 https://github.com/imatix/zguide.git
-```
+Install libxrif from here: https://github.com/jaredmales/xrif
 
 ### Configuration
 
