@@ -26,8 +26,20 @@ You need the *DRAFT API* of ZeroMQ: http://zeromq.org/intro:get-the-software, wh
 
 
 For Ubuntu 22.04:
-As of 2022-06-18 the draft API version of the packages have not been released by 0MQ.  You can get the 20.04 packages to work, but you will need to do this manually.  This includes downloading libpgm from the 20.04 repo yourself.  You may also have to configure apt to use unsigned repos.
+As of 2022-06-18 the draft API version of the packages have not been released by 0MQ.  You can get the 20.04 packages to work, but you will need to do this manually.  This includes downloading libpgm from the 20.04 repo yourself.  You may also have to configure apt to use unsigned repos. 2022-09-03: this is still true.  The 22.04 release-draft repos do not have this library yet.   You will have to downgrade libzmq5, and use the 20.04 release-draft repos.
+- First follow the instructions below to install the xUbuntu_20.04 repo and key.  Don't bother installing `libzmq3-dev` yet.
+- Next execute the following:
+```
+sudo apt install libzmq5=4.3.4-0
+sudo apt install libzmq3-dev=4.3.4-0
+```
+These packages are now downgraded.  
 
+To prevent them from being upgrade, do this:
+```
+sudo apt-mark hold libzmq5
+sudo apt-mark hold libzmq3-dev
+```
 
 For Ubuntu 20.04:
 ```
