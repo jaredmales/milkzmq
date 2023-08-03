@@ -15,17 +15,31 @@ Requirements:
 
 ### Dependencies
 
-#### ImageStreamIO
+#### 1. ImageStreamIO
 
 You need the `milk` library, usually as part of `CACAO`.
 
 
-#### ZeroMQ
+#### 2. ZeroMQ
 
 You need the *DRAFT API* of ZeroMQ: http://zeromq.org/intro:get-the-software, which means you can not use the version provided by default in Ubuntu or CentOS.  Follow the instructions below for your O/S. 
 
 
-For Ubuntu 22.04:
+##### For Ubuntu 22.04:
+
+Option 1: Compile yourelf.
+
+```
+$ wget https://github.com/zeromq/libzmq/releases/download/v4.3.4/zeromq-4.3.4.tar.gz
+$ tar -xvzf zeromq-4.3.4.tar.gz
+$ cd zeromq-4.3.4
+$ ./configure --enable-drafts
+$ make
+$ sudo make install
+```
+
+Option 2: use the 20.04 packages.
+
 As of 2022-06-18 the draft API version of the packages have not been released by 0MQ.  You can get the 20.04 packages to work, but you will need to do this manually.  This includes downloading libpgm from the 20.04 repo yourself.  You may also have to configure apt to use unsigned repos. 2022-09-03: this is still true.  The 22.04 release-draft repos do not have this library yet.   You will have to downgrade libzmq5, and use the 20.04 release-draft repos.
 - First follow the instructions below to install the xUbuntu_20.04 repo and key.  Don't bother installing `libzmq3-dev` yet.
 - Next execute the following:
@@ -41,7 +55,7 @@ sudo apt-mark hold libzmq5
 sudo apt-mark hold libzmq3-dev
 ```
 
-For Ubuntu 20.04:
+##### For Ubuntu 20.04:
 ```
 $ sudo su
 $ echo "deb https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-draft/xUbuntu_20.04/ ./" >> /etc/apt/sources.list
@@ -49,7 +63,7 @@ $ wget https://download.opensuse.org/repositories/network:/messaging:/zeromq:/re
 $ apt-get install libzmq3-dev
 ```
 
-For Ubuntu 18.04:
+##### For Ubuntu 18.04:
 ```
 $ sudo su
 $ echo "deb https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-draft/xUbuntu_18.04/ ./" >> /etc/apt/sources.list
@@ -57,14 +71,14 @@ $ wget https://download.opensuse.org/repositories/network:/messaging:/zeromq:/re
 $ apt-get install libzmq3-dev
 ```
 
-On CentOS 7:
+##### On CentOS 7:
 ```
 $ sudo su
 $ yum-config-manager --add-repo https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-draft/CentOS_7/network:messaging:zeromq:release-draft.repo
 $ yum install -y zeromq-devel libzmq5
 ```
 
-#### cppzmq
+#### 3. cppzmq
 We also need the c++ bindings for ZeroMQ from the cppzmq project.  It is a simple header-only library.  To get it, you can do this:
 ```
 $ git clone https://github.com/zeromq/cppzmq.git
@@ -72,7 +86,7 @@ $ cd cppzmq/
 $ sudo cp *.hpp /usr/local/include/
 ```
 
-#### xrif
+#### 4. xrif
 
 Install libxrif from here: https://github.com/jaredmales/xrif
 
