@@ -30,6 +30,7 @@
 
 #include <signal.h>
 #include <fcntl.h>  // for open
+#include <sys/stat.h> //for stat (inodes)
 
 #include <unordered_map>
 #include <mutex>
@@ -79,6 +80,8 @@ protected:
      *
      *@{
      */
+
+   ino_t m_inode {0}; ///< The inode of the open shmim.  Monitored for changes to indicate a reconnect is needed.
 
    zmq::context_t * m_ZMQ_context {nullptr}; ///< The ZeroMQ context, allocated on construction.
 
@@ -683,14 +686,15 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
       opened = false;
       m_restart = false; //Set this up front, since we're about to restart.
       
+      int SM_fd;
+      char SM_fname[512];
+      ImageStreamIO_filename(SM_fname, sizeof(SM_fname), imageName.c_str());
+
       int printed = 0;
       while(!opened && !m_timeToDie && !m_restart)
       {
          //b/c ImageStreamIO prints every single time, and latest version don't support stopping it yet, and that isn't thread-safe-able anyway
          //we do our own checks.  This is the same code in ImageStreamIO_openIm...
-         int SM_fd;
-         char SM_fname[200];
-         ImageStreamIO_filename(SM_fname, sizeof(SM_fname), imageName.c_str());
          SM_fd = open(SM_fname, O_RDWR);
          if(SM_fd == -1)
          {
@@ -715,6 +719,20 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
             {
                type_size = ImageStreamIO_typesize(image.md[0].datatype);
                opened = true;
+
+               struct stat statbuff;
+               int rv = stat(SM_fname, &statbuff);
+
+               if(rv != 0)
+               {
+                  reportError("Error stat-ing ImageStream " + imageName, __FILE__, __LINE__);   
+                  ImageStreamIO_closeIm(&image);
+                  opened = false;
+               }
+               else
+               {
+                  m_inode = statbuff.st_ino;
+               }
             }
          }
          else
@@ -905,6 +923,26 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
          {
             if(image.md[0].sem <= 0) break; //Indicates that the server has cleaned up.
             
+            struct stat statbuff;
+            int rv = stat(SM_fname, &statbuff);
+
+            if(rv != 0)
+            {
+                char serr[512];
+                if(strerror_r(errno, serr, sizeof(serr)) ) 
+                {
+                    static_cast<void>(errno); //not error checking b/c the GNU vs XSI thing makes it impossible to understand what to do.
+                }
+
+                reportError("Error stat-ing ImageStream " + imageName + ": " + serr, __FILE__, __LINE__);  
+                break; 
+            }
+
+            if(statbuff.st_ino != m_inode)
+            {
+               break;
+            }
+
             milkzmq::microsleep(m_usecSleep);
             
             //If delay is long, we reset the loop b/c we aren't doing any good anyway, and this prevents over shoot on a reconnect
