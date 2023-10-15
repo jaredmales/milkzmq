@@ -81,8 +81,7 @@ protected:
      *@{
      */
 
-   ino_t m_inode {0}; ///< The inode of the open shmim.  Monitored for changes to indicate a reconnect is needed.
-
+   
    zmq::context_t * m_ZMQ_context {nullptr}; ///< The ZeroMQ context, allocated on construction.
 
    zmq::socket_t * m_server {nullptr};  ///< The ZeroMQ server, allocated when the server thread starts up.
@@ -670,7 +669,6 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
    
    uint8_t * msg = nullptr;
    
-   
    while(m_server == nullptr)
    {
       milkzmq::sleep(1);
@@ -691,6 +689,9 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
       ImageStreamIO_filename(SM_fname, sizeof(SM_fname), imageName.c_str());
 
       int printed = 0;
+
+      ino_t inode {0};
+
       while(!opened && !m_timeToDie && !m_restart)
       {
          //b/c ImageStreamIO prints every single time, and latest version don't support stopping it yet, and that isn't thread-safe-able anyway
@@ -731,7 +732,7 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                }
                else
                {
-                  m_inode = statbuff.st_ino;
+                  inode = statbuff.st_ino;
                }
             }
          }
@@ -938,8 +939,9 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
                 break; 
             }
 
-            if(statbuff.st_ino != m_inode)
+            if(statbuff.st_ino != inode)
             {
+               std::cerr << "inode changed " << statbuff.st_ino << " " << inode << "\n";
                break;
             }
 
