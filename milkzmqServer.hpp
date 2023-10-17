@@ -872,8 +872,8 @@ void milkzmqServer::imageThreadExec(const std::string & imageName)
             *((uint32_t *) (msg + size0Offset)) = snx;
             *((uint32_t *) (msg + size1Offset)) = sny;
             *((uint64_t *) (msg + cnt0Offset)) = image.md[0].cnt0;
-            *((uint64_t *) (msg + tv_secOffset)) = image.md[0].atime.tv_sec;
-            *((uint64_t *) (msg + tv_nsecOffset)) = image.md[0].atime.tv_nsec;
+            *((uint64_t *) (msg + tv_secOffset)) = image.md[0].writetime.tv_sec;
+            *((uint64_t *) (msg + tv_nsecOffset)) = image.md[0].writetime.tv_nsec;
             *((int16_t *) (msg + xrifDifferenceOffset)) = xrif->difference_method; 
             *((int16_t *) (msg + xrifReorderOffset))    = xrif->reorder_method;
             *((int16_t *) (msg + xrifCompressOffset))   = xrif->compress_method;

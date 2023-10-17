@@ -540,8 +540,8 @@ void milkzmqClient::imageThreadExec( const std::string & imageName,
          image.md[0].write=1;
       
          image.md[0].cnt0 = *( (uint64_t *) (raw_image + cnt0Offset));
-         image.md[0].atime.tv_sec = *( (uint64_t *) (raw_image + tv_secOffset));
-         image.md[0].atime.tv_nsec = *( (uint64_t *) (raw_image + tv_nsecOffset));
+         image.md[0].writetime.tv_sec = *( (uint64_t *) (raw_image + tv_secOffset));
+         image.md[0].writetime.tv_nsec = *( (uint64_t *) (raw_image + tv_nsecOffset));
          
          xrif->compressed_size =  *((uint32_t *) (raw_image + xrifSizeOffset));
          
