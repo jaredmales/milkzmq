@@ -1,28 +1,18 @@
 ######################################################
-## makefile for milkzmqServer                         ##
-##                                                  ## 
-## Edit BIN_PATH to specify installation directory. ##
+## Makefile for milkzmqServer.                      ##
 ######################################################
 
-BIN_PATH?=$(HOME)/bin
-INC_PATH?=$(HOME)/include
+TARGET		 = milkzmqServer
+HEADER		 = milkzmqServer.hpp
+BIN_PATH	?= $(HOME)/bin
+INC_PATH	?= $(HOME)/include
+LIB_PATH	?= $(HOME)/lib
+OPTIMIZE 	?= -O3 -ffast-math
+INCLUDES 	+= -I$(INC_PATH) -Itest
+CXXFLAGS 	+= -std=c++23 $(OPTIMIZE) $(INCLUDES)
+LDLIBS 		+= -lzmq -L$(LIB_PATH) -lImageStreamIO -lxrif -lpthread
 
-######################################################
-
-
-TARGET=milkzmqServer
-HEADER=milkzmqServer.hpp
-
-
-OPTIMIZE ?= -O3 -ffast-math
-
-INCLUDES += -I/usr/local/milk/include
-
-CXXFLAGS += -std=c++14 $(OPTIMIZE) $(INCLUDES)
-
-LDLIBS += -lzmq -L /usr/local/milk/lib -lImageStreamIO -lxrif -lpthread
-
-all: $(TARGET) 
+all: $(TARGET) ims3_rand_send
 
 $(TARGET): $(HEADER) milkzmqUtils.hpp
 
@@ -35,6 +25,9 @@ install: all
 
 .PHONY: clean
 clean:
-	rm -f $(TARGET)
-	rm -f *.o 
+	rm -f $(TARGET) ims3_rand_send
+	rm -f *.o test/*.o
 	rm -f *~
+
+ims3_rand_send: test/ims3.o test/ims3_rand_send.o
+	$(CXX) -o $@ $^ $(LDLIBS)
