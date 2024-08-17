@@ -30,10 +30,14 @@
 
 #include <signal.h>
 #include <fcntl.h>  // for open
+#include <sys/inotify.h>
 #include <sys/stat.h> //for stat (inodes)
 
-#include <unordered_map>
+#include <boost/algorithm/string/predicate.hpp>
+#include <filesystem>
+#include <list>
 #include <mutex>
+#include <unordered_map>
 
 #define ZMQ_BUILD_DRAFT_API
 #define ZMQ_CPP11
@@ -580,7 +584,7 @@ void milkzmqServer::serverThreadExec()
       {
          //Wait for next request from a client
          #if(CPPZMQ_VERSION >= ZMQ_MAKE_VERSION(4, 3, 1))
-         m_server->recv (request);
+         static_cast<void>(m_server->recv (request)); // method has nodiscard attribute.
          #else
          m_server->recv(&request);
          #endif

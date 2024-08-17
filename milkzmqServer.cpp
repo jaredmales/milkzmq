@@ -25,10 +25,7 @@
 // along with milkzmq.  If not, see <http://www.gnu.org/licenses/>.
 //***********************************************************************//
 
-
-
 #include "milkzmqServer.hpp"
-
 
 std::string argv0;
 
@@ -136,7 +133,7 @@ void usage( const char * msg = 0 )
    std::cerr << "    -u    specify the loop sleep time in usecs [default = 1000].\n";
    std::cerr << "    -f    specify the F.P.S. target [default = 10.0].\n";
    std::cerr << "    -x    turn on compression for INT16 and UINT16 types [default is off].\n";
-   
+   std::cerr << "    -a    If no shm-names are listed, export all from MILK_SHM_DIR.\n";
 }
 
 int main( int argc,
@@ -148,15 +145,13 @@ int main( int argc,
    int usecSleep = 1000;
    float fpsTgt = 10.0;
    bool compress = false;
-   
+   bool exportAll = false;
    bool help = false;
-
    argv0 = argv[0];
-   
    opterr = 0;
-   
    int c;
-   while ((c = getopt (argc, argv, "hxp:u:f:")) != -1)
+
+   while ((c = getopt (argc, argv, "ahxp:u:f:")) != -1)
    {
       if(c == 'h')
       {
@@ -172,7 +167,6 @@ int main( int argc,
             c = '?';
          }
       }
-      
       
       switch (c)
       {
@@ -199,7 +193,9 @@ int main( int argc,
 
             usage(errm);
             return 1;
-            
+         case 'a':
+            exportAll = true;
+            break;
          default:
             usage(argv[0]);
             abort ();
@@ -213,46 +209,99 @@ int main( int argc,
    }
 
 
-   if( optind > argc-1)
+   if((!exportAll) && (optind > argc-1))
    {
       usage("must specify at least one shared memory file name as only non-option argument.");
       return -1;
    }
    
-   
+   std::list<std::string> streams;
+   std::string shmDir;
+   if(exportAll) {
+      // Look for image streams.
+      shmDir = std::string(std::getenv("MILK_SHM_DIR"));
+      for (const auto &entry : std::filesystem::directory_iterator(shmDir)) {
+         if (boost::algorithm::ends_with(entry.path().filename().generic_string(), ".im.shm")) {
+            streams.push_back(entry.path().stem().stem().generic_string());
+         }
+      }
+
+      // Log that we didn't find any.
+      if (streams.size() == 0) {
+         std::cerr << "I didn't find any image streams, but will wait to see if they're created." << std::endl;
+      }
+   }
+
+   // Get everything ready.
    milkzmq::milkzmqServer mzs;
-   
    mzs.argv0(argv0);
    mzs.imagePort(port);
    if(compress) mzs.defaultCompression();
+   mzs.fpsTgt(fpsTgt);
+   mzs.usecSleep(usecSleep);
+   setSigTermHandler();
+   setSigSegvHandler();
    
-   for(int n=0; n < argc - optind; ++n)
-   {
+   // Start the explicitly named streams.
+   for(int n=0; n < argc - optind; ++n) {
       mzs.shMemImName(argv[optind+n]);
    }
    
-   mzs.fpsTgt(fpsTgt);
-   mzs.usecSleep(usecSleep);
-  
-   setSigTermHandler();
-   setSigSegvHandler();
+   // If we're doing them all, add the list.
+   if(exportAll) {
+      for(auto stream : streams) mzs.shMemImName(stream);
+   }
  
+   // Start the threads.
    mzs.serverThreadStart();
+   size_t n = 0;
+   for(; n < argc-optind; n++) mzs.imageThreadStart(n);
+   for(; n < static_cast<int>(argc-optind + streams.size()); n++) mzs.imageThreadStart(n);
 
-   for(size_t n=0; n < argc-optind; ++n)
-   {
-      mzs.imageThreadStart(n);
+   // If we're exporting all image streams, use inotify to spawn threads for image streams as they're added.
+   std::thread t_watcher;
+   if(exportAll) {
+      int inotify_fd = inotify_init();
+      if (inotify_fd < 0) {
+         std::perror("inotify_init");
+      } else {
+         // Tell inotify we want to know about new image streams.
+         int retv = inotify_add_watch(inotify_fd, shmDir.c_str(), IN_CREATE);
+         if (retv < 0) {
+            std::perror("inotify_add_watch");
+         }
+      }
+      
+      // Use a lambda to wait for inotify events.
+      t_watcher = std::thread([inotify_fd, &n, &mzs, shmDir]() {
+         std::cout << std::format("inotify->{}", shmDir) << std::endl;
+         struct inotify_event event_buf[32];
+         while (true) {
+            std::size_t bytes_read = read(inotify_fd, &event_buf[0], sizeof(event_buf));  // Wait for events.
+            if (bytes_read <= 0) {                                                        // Check to see we actually got something.
+               std::perror("read on inotify_fd");                                         // If something terrible happened, give up.
+               break;
+            } else {
+               int num = static_cast<int>(bytes_read / sizeof(struct inotify_event));
+               for (int i = 0; i < num; i++) {                                                     // Try and process one or more events.
+                  struct inotify_event *ie = event_buf + i;                                        // Get the event.
+                  if (!(ie->mask & IN_CREATE)) continue;                                           // Don't both if it isn't a create event.
+                  if (ie->len <= 0) continue;                                                      // If we don't have a file name, try another.
+                  std::filesystem::path path(ie->name);                                            // Make a path for the created file.
+                  if (boost::algorithm::ends_with(path.filename().generic_string(), ".im.shm")) {  // Is it an image stream?
+                     mzs.shMemImName(path.stem().stem().generic_string());                         // It is. Start a thread for it.
+                     mzs.imageThreadStart(n++);
+                  }
+               }
+            }
+         }
+      });
    }
+
+   // Wait until it's time for us to stop.   
+   while(!milkzmq::milkzmqServer::m_timeToDie) milkzmq::sleep(1);
    
-   while(!milkzmq::milkzmqServer::m_timeToDie) 
-   {
-      milkzmq::sleep(1);
-   }
-   
+   // Stop everything.
    mzs.serverThreadKill();
-   
-   for(size_t n=0; n < argc-optind; ++n)
-   {
-      mzs.imageThreadKill(n);
-   }
+   for(size_t m=0; m < n; n++) mzs.imageThreadKill(n);
 }
