@@ -56,7 +56,9 @@ int main(int argc, char* argv[]) {
   // Open a randomly named image stream.
   auto name = rand_str(16);
   auto is = new chai::masala::ImStream3(name, DIM, DIM, _DATATYPE_FLOAT);
+  #if (__cpp_lib_format >= 202207L)
   std::cout << std::format("New image stream is named {}.", name) << std::endl;
+  #endif
 
   // Make some data and send it at one hz.
   std::array<float, DIM * DIM> arr;
