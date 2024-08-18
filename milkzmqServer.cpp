@@ -24,7 +24,14 @@
 // You should have received a copy of the GNU General Public License
 // along with milkzmq.  If not, see <http://www.gnu.org/licenses/>.
 //***********************************************************************//
-#include <version>
+#include <format>
+
+#define XSTR(x) STR(x)
+#define STR(x) #x
+
+#define VALUE_TO_STRING(x) #x
+#define VALUE(x) VALUE_TO_STRING(x)
+#define VAR_NAME_VALUE(var) #var "="  VALUE(var)
 
 #include "milkzmqServer.hpp"
 
@@ -275,8 +282,7 @@ int main( int argc,
       
       // Use a lambda to wait for inotify events.
       t_watcher = std::thread([inotify_fd, &n, &mzs, shmDir]() {
-         
-	 #if (__cpp_lib_format >= 202207L)
+         #if(__cpp_lib_format >= 202110L)
          std::cout << std::format("inotify->{}", shmDir) << std::endl;
          #endif
 	 struct inotify_event event_buf[32];

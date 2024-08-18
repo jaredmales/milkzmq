@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
   // Open a randomly named image stream.
   auto name = rand_str(16);
   auto is = new chai::masala::ImStream3(name, DIM, DIM, _DATATYPE_FLOAT);
-  #if (__cpp_lib_format >= 202207L)
+  #if (__cpp_lib_format >= 202110L)
   std::cout << std::format("New image stream is named {}.", name) << std::endl;
   #endif
 
