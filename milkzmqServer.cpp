@@ -24,14 +24,7 @@
 // You should have received a copy of the GNU General Public License
 // along with milkzmq.  If not, see <http://www.gnu.org/licenses/>.
 //***********************************************************************//
-#include <format>
-
-#define XSTR(x) STR(x)
-#define STR(x) #x
-
-#define VALUE_TO_STRING(x) #x
-#define VALUE(x) VALUE_TO_STRING(x)
-#define VAR_NAME_VALUE(var) #var "="  VALUE(var)
+#include <version>
 
 #include "milkzmqServer.hpp"
 
