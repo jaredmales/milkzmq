@@ -1,0 +1,13 @@
+[Unit]
+Description=milk-zmq-server
+After=network.target syslog.target
+
+[Service]
+ExecStart=/opt/magaox/bin/milkzmqServer -a
+User=root
+RestartSec=5
+Restart=always
+Type=simple
+
+[Install]
+WantedBy=multi-user.target

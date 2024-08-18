@@ -1,12 +1,16 @@
 ######################################################
-## makefile for milkzmq                             ##
-##                                                  ## 
-## Edit BIN_PATH to specify installation directory. ##
+## Makefile for milkzmq.                            ##
 ######################################################
 
-#This will change for both client and server
-export BIN_PATH=/usr/local/bin
-export INC_PATH=/usr/local/include
+ifeq ($(wildcard /opt/magaox),)
+export BIN_PATH	:= /usr/local/bin
+export INC_PATH	:= /usr/local/include
+export LIB_PATH	:= /usr/local/lib
+else
+export BIN_PATH	:= /opt/magaox/bin
+export INC_PATH	:= /opt/magaox/include
+export LIB_PATH	:= /opt/magaox/lib
+endif
 
 all:
 	$(MAKE) -f makefile.server all

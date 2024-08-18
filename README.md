@@ -9,7 +9,7 @@ The client receives the images and updates an ImageStreamIO buffer on a remote c
 ## Building
 
 Requirements:
- - c++14 compiler (tested on gcc)
+ - c++23 compiler (tested on gcc 13.x)
  - ImageStreamIO
  - ZeroMQ
 
@@ -131,6 +131,8 @@ options:
     -p    specify the port number of the server [default = 5556].
     -u    specify the loop sleep time in usecs [default = 1000].
     -f    specify the F.P.S. target [default = 10.0].
+    -x    turn on compression for INT16 and UINT16 types [default is off].
+    -a    If no shm-names are listed, export all from MILK_SHM_DIR.
 ```
 
 ### milkzmqClient
