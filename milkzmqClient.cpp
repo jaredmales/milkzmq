@@ -1,10 +1,10 @@
 /** \file milkzmqClient.cpp
-  * \brief Main function for a simple ZeroMQ ImageStreamIO client
-  * \author Jared R. Males (jaredmales@gmail.com)
-  *
-  * History:
-  * - 2018 created by JRM
-  */
+ * \brief Main function for a simple ZeroMQ ImageStreamIO client
+ * \author Jared R. Males (jaredmales@gmail.com)
+ *
+ * History:
+ * - 2018 created by JRM
+ */
 
 //***********************************************************************//
 // Copyright 2018-2021 Jared R. Males (jaredmales@gmail.com)
@@ -15,7 +15,7 @@
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-//r
+// r
 // milkzmq is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -25,220 +25,211 @@
 // along with milkzmq.  If not, see <http://www.gnu.org/licenses/>.
 //***********************************************************************//
 
-#include <signal.h>
-
 #include "milkzmqClient.hpp"
+
+#include <signal.h>
 
 std::string argv0;
 
-void sigHandler( int signum,
-                 siginfo_t *siginf,
-                 void *ucont
-               )
+void sigHandler( int signum, siginfo_t *siginf, void *ucont )
 {
-   //Suppress those warnings . . .
-   static_cast<void>(signum);
-   static_cast<void>(siginf);
-   static_cast<void>(ucont);
-   
-   milkzmq::milkzmqClient::m_timeToDie = true;
+    // Suppress those warnings . . .
+    static_cast<void>( signum );
+    static_cast<void>( siginf );
+    static_cast<void>( ucont );
+
+    milkzmq::milkzmqClient::m_timeToDie.store( true, std::memory_order_relaxed );
 }
 
 int setSigTermHandler()
 {
-   struct sigaction act;
-   sigset_t set;
+    struct sigaction act;
+    sigset_t set;
 
-   act.sa_sigaction = sigHandler;
-   act.sa_flags = SA_SIGINFO;
-   sigemptyset(&set);
-   act.sa_mask = set;
+    act.sa_sigaction = sigHandler;
+    act.sa_flags = SA_SIGINFO;
+    sigemptyset( &set );
+    act.sa_mask = set;
 
-   errno = 0;
-   if( sigaction(SIGTERM, &act, 0) < 0 )
-   {
-      std::cerr << " (" << argv0 << "): error setting SIGTERM handler: " << strerror(errno) << "\n";
-      return -1;
-   }
+    errno = 0;
+    if( sigaction( SIGTERM, &act, 0 ) < 0 )
+    {
+        std::cerr << " (" << argv0 << "): error setting SIGTERM handler: " << strerror( errno ) << "\n";
+        return -1;
+    }
 
-   errno = 0;
-   if( sigaction(SIGQUIT, &act, 0) < 0 )
-   {
-      std::cerr << " (" << argv0 << "): error setting SIGQUIT handler: " << strerror(errno) << "\n";
-      return -1;
-   }
+    errno = 0;
+    if( sigaction( SIGQUIT, &act, 0 ) < 0 )
+    {
+        std::cerr << " (" << argv0 << "): error setting SIGQUIT handler: " << strerror( errno ) << "\n";
+        return -1;
+    }
 
-   errno = 0;
-   if( sigaction(SIGINT, &act, 0) < 0 )
-   {
-      std::cerr << " (" << argv0 << "): error setting SIGINT handler: " << strerror(errno) << "\n";
-      return -1;
-   }
+    errno = 0;
+    if( sigaction( SIGINT, &act, 0 ) < 0 )
+    {
+        std::cerr << " (" << argv0 << "): error setting SIGINT handler: " << strerror( errno ) << "\n";
+        return -1;
+    }
 
-   return 0;
+    return 0;
 }
 
-void usage( const char * msg = 0 )
+void usage( const char *msg = 0 )
 {
-   std::cerr << argv0 << ": \n\n";
-   
-   if(msg) std::cerr << "error: " << msg << "\n\n";
-   
-   std::cerr << "usage: " << argv0 << " [options] remote-host shm-name [shm-names]\n\n";
-   
-   std::cerr << "   remote-host is the address of the remote host where milkzmqServer is running.\n\n";
-   std::cerr << "   shm-name is the root of the ImageStreamIO shared memory image file.\n";
-   std::cerr << "            If the full path is \"/tmp/image00.im.shm\" then shm-name=image00\n";
-   std::cerr << "            At least one shm-name must be specified.\n";
-   std::cerr << "            To specify a different local name, use a /.  Example: \"image00/local_image00\"\n";
-   std::cerr << "            will stream the remote image00 locally as local_image00.\n";
-   std::cerr << "options:\n";
-   std::cerr << "    -h    print this message and exit.\n";
-   std::cerr << "    -p    specify the port number of the server [default = 5556].\n";
+    std::cerr << argv0 << ": \n\n";
 
-   return;
+    if( msg )
+        std::cerr << "error: " << msg << "\n\n";
+
+    std::cerr << "usage: " << argv0 << " [options] remote-host shm-name [shm-names]\n\n";
+
+    std::cerr << "   remote-host is the address of the remote host where milkzmqServer is running.\n\n";
+    std::cerr << "   shm-name is the root of the ImageStreamIO shared memory image file.\n";
+    std::cerr << "            If the full path is \"/tmp/image00.im.shm\" then shm-name=image00\n";
+    std::cerr << "            At least one shm-name must be specified.\n";
+    std::cerr << "            To specify a different local name, use a /.  Example: \"image00/local_image00\"\n";
+    std::cerr << "            will stream the remote image00 locally as local_image00.\n";
+    std::cerr << "options:\n";
+    std::cerr << "    -h    print this message and exit.\n";
+    std::cerr << "    -p    specify the port number of the server [default = 5556].\n";
+
+    return;
 }
 
-int parseName( std::string & remName,
-               std::string & locName,
-               const std::string & name
-             )
+int parseName( std::string &remName, std::string &locName, const std::string &name )
 {
-   size_t slash = name.find("/");
-   
-   if(slash == std::string::npos)
-   {
-      remName = name;
-      locName = "";
-      return 0;
-   }
-   
-   if(slash == 0)
-   {
-      std::cerr << "invalid name specification (no remote): " << name << "\n";
-      remName = "";
-      locName = "";
-      return -1;
-   }
-   
-   remName = name.substr(0, slash);
-   
-   if(slash > name.size()-1)
-   {
-      locName = "";
-      return 0;
-   }
-   
-   locName = name.substr(slash+1);
-   
-   return 0;
+    size_t slash = name.find( "/" );
+
+    if( slash == std::string::npos )
+    {
+        remName = name;
+        locName = "";
+        return 0;
+    }
+
+    if( slash == 0 )
+    {
+        std::cerr << "invalid name specification (no remote): " << name << "\n";
+        remName = "";
+        locName = "";
+        return -1;
+    }
+
+    remName = name.substr( 0, slash );
+
+    if( slash > name.size() - 1 )
+    {
+        locName = "";
+        return 0;
+    }
+
+    locName = name.substr( slash + 1 );
+
+    return 0;
 }
 
-int main (int argc, char *argv[])
+int main( int argc, char *argv[] )
 {
-   int port = 5556;
-   bool help = false;
+    int port = 5556;
+    bool help = false;
 
-   argv0 = argv[0];
-   
-   opterr = 0;
-   
-   int c;
-   while ((c = getopt (argc, argv, "hp:")) != -1)
-   {
-      if(c == 'h')
-      {
-         help = true;
-         break;
-      }
-      
-      if( optarg != NULL)
-      {
-         if (optarg[0] == '-')
-         {
-            optopt = c;
-            c = '?';
-         }
-      }
-      
-      
-      switch (c)
-      {
-         case 'p':
-            port = atoi(optarg);
+    argv0 = argv[0];
+
+    opterr = 0;
+
+    int c;
+    while( ( c = getopt( argc, argv, "hp:" ) ) != -1 )
+    {
+        if( c == 'h' )
+        {
+            help = true;
             break;
-         case '?':
-            char errm[256];
-            if (optopt == 'p' || optopt == 'u' || optopt == 'f' || optopt == 's')
-               snprintf(errm, 256, "Option -%c requires an argument.", optopt);
-            else if (isprint (optopt))
-               snprintf(errm, 256, "Unknown option `-%c'.", optopt);
-            else
-               snprintf(errm, 256, "Unknown option character `\\x%x'.", optopt);
+        }
 
-            usage(errm);
-            return 1;
-            
-         default:
-            usage(argv[0]);
-            abort ();
-      }
-   }
+        if( optarg != NULL )
+        {
+            if( optarg[0] == '-' )
+            {
+                optopt = c;
+                c = '?';
+            }
+        }
 
-   if(help)
-   {
-      usage();
-      return 0;
-   }
+        switch( c )
+        {
+            case 'p':
+                port = atoi( optarg );
+                break;
+            case '?':
+                char errm[256];
+                if( optopt == 'p' || optopt == 'u' || optopt == 'f' || optopt == 's' )
+                    snprintf( errm, 256, "Option -%c requires an argument.", optopt );
+                else if( isprint( optopt ) )
+                    snprintf( errm, 256, "Unknown option `-%c'.", optopt );
+                else
+                    snprintf( errm, 256, "Unknown option character `\\x%x'.", optopt );
 
+                usage( errm );
+                return 1;
 
-   if( argc - optind < 2)
-   {
-      usage("must specify remote address and shared memory file(s) name as non-option arguments.");
-      return -1;
-   }
-   
-   std::string remote_address = argv[optind];
-   
-   milkzmq::milkzmqClient mzc;
-   mzc.argv0(argv0);
-   mzc.address(remote_address);
-   mzc.imagePort(port);
-   
-   std::cerr << "N: " << argc - optind << "\n";
-   for(int n=1; n < argc - optind; ++n)
-   {
-      std::string remName, locName;
-      
-      if(parseName( remName, locName, argv[optind+n]) < 0)
-      {
-         usage();
-         return -1;
-      }
-      std::cerr << remName << " " << locName << "\n";
-      if(n==0) continue;
-      mzc.shMemImName(remName, locName);
-   }
-   
-   
-   
-   setSigTermHandler();
-   
-   for(size_t n=0; n < argc-optind - 1; ++n)
-   {
-      mzc.imageThreadStart(n);
-   }
-   
-   while(!milkzmq::milkzmqClient::m_timeToDie) 
-   {
-      milkzmq::sleep(1);
-   }
-   
-   for(size_t n=0; n < argc-optind - 1; ++n)
-   {
-      mzc.imageThreadKill(n);
-   }
-   
+            default:
+                usage( argv[0] );
+                abort();
+        }
+    }
 
-   return 0;
+    if( help )
+    {
+        usage();
+        return 0;
+    }
+
+    if( argc - optind < 2 )
+    {
+        usage( "must specify remote address and shared memory file(s) name as non-option arguments." );
+        return -1;
+    }
+
+    std::string remote_address = argv[optind];
+
+    milkzmq::milkzmqClient mzc;
+    mzc.argv0( argv0 );
+    mzc.address( remote_address );
+    mzc.imagePort( port );
+
+    std::cerr << "N: " << argc - optind << "\n";
+    for( int n = 1; n < argc - optind; ++n )
+    {
+        std::string remName, locName;
+
+        if( parseName( remName, locName, argv[optind + n] ) < 0 )
+        {
+            usage();
+            return -1;
+        }
+        std::cerr << remName << " " << locName << "\n";
+        if( n == 0 )
+            continue;
+        mzc.shMemImName( remName, locName );
+    }
+
+    setSigTermHandler();
+
+    for( size_t n = 0; n < argc - optind - 1; ++n )
+    {
+        mzc.imageThreadStart( n );
+    }
+
+    while( !milkzmq::milkzmqClient::m_timeToDie.load( std::memory_order_relaxed ) )
+    {
+        milkzmq::sleep( 1 );
+    }
+
+    for( size_t n = 0; n < argc - optind - 1; ++n )
+    {
+        mzc.imageThreadKill( n );
+    }
+
+    return 0;
 }
