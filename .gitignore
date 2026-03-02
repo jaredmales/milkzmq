@@ -3,3 +3,8 @@
 milkzmqClient
 milkzmqServer
 .vscode
+
+# Test/build artifacts
+ims3_rand_send
+mzmq_reconnect_resize_test
+test/*.o
