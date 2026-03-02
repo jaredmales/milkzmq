@@ -12,7 +12,7 @@ INCLUDES 	+= -I$(INC_PATH) -Itest
 CXXFLAGS 	+= -std=c++23 $(OPTIMIZE) $(INCLUDES)
 LDLIBS 		+= -lzmq -L$(LIB_PATH) -lImageStreamIO -lxrif -lpthread
 
-all: $(TARGET) ims3_rand_send
+all: $(TARGET) ims3_rand_send mzmq_reconnect_resize_test
 
 $(TARGET): $(HEADER) milkzmqUtils.hpp
 
@@ -25,9 +25,12 @@ install: all
 
 .PHONY: clean
 clean:
-	rm -f $(TARGET) ims3_rand_send
+	rm -f $(TARGET) ims3_rand_send mzmq_reconnect_resize_test
 	rm -f *.o test/*.o
 	rm -f *~
 
 ims3_rand_send: test/ims3.o test/ims3_rand_send.o
+	$(CXX) -o $@ $^ $(LDLIBS)
+
+mzmq_reconnect_resize_test: test/mzmq_reconnect_resize_test.o
 	$(CXX) -o $@ $^ $(LDLIBS)
