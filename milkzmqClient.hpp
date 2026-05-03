@@ -67,7 +67,6 @@ class milkzmqClient
     {
         std::thread *m_thread{
             nullptr };            ///< Thread for receiving image slice updates.  A pointer to allow copying, but must be deleted in d'tor of parent.
-        milkzmqClient *m_mzc;     ///< a pointer to a milkzmqClient instance (normally this)
         std::string m_imageName;  ///< the name of the image to subscribe from this thread
         std::string m_localImageName;  ///< optional local name of this image stream.  Ignored if "".
 
@@ -169,7 +168,10 @@ class milkzmqClient
 
    private:
     /// Thread starter, called by imageThreadStart on thread construction.  Calls imageThreadExec.
-    static void internal_imageThreadStart( s_imageThread *mit /**< [in] a pointer to an s_imageThread structure */ );
+    static void internal_imageThreadStart( milkzmqClient *mzc,        /**< [in] the client instance executing the thread */
+                                           std::string imageName,     /**< [in] the remote image stream to subscribe to */
+                                           std::string localImageName /**< [in] the local image stream name */
+    );
 
    public:
     /// Start the image thread.
@@ -283,7 +285,6 @@ inline int milkzmqClient::shMemImName( const std::string &name, const std::strin
 {
     s_imageThread nt;
 
-    nt.m_mzc = this;
     nt.m_imageName = name;
     nt.m_localImageName = localName;
 
@@ -308,16 +309,28 @@ inline std::string milkzmqClient::localShMemImName( size_t imno )
     return m_imageThreads[imno].m_localImageName;
 }
 
-inline void milkzmqClient::internal_imageThreadStart( s_imageThread *mit )
+inline void milkzmqClient::internal_imageThreadStart( milkzmqClient *mzc, std::string imageName, std::string localImageName )
 {
-    mit->m_mzc->imageThreadExec( mit->m_imageName, mit->m_localImageName );
+    try
+    {
+        mzc->imageThreadExec( imageName, localImageName );
+    }
+    catch( const std::exception &e )
+    {
+        mzc->reportError( std::string( "exception in image thread execution: " ) + e.what(), __FILE__, __LINE__ );
+    }
+    catch( ... )
+    {
+        mzc->reportError( "unknown exception in image thread execution", __FILE__, __LINE__ );
+    }
 }
 
 inline int milkzmqClient::imageThreadStart( size_t thno )
 {
     try
     {
-        *m_imageThreads[thno].m_thread = std::thread( internal_imageThreadStart, &m_imageThreads[thno] );
+        *m_imageThreads[thno].m_thread =
+            std::thread( internal_imageThreadStart, this, m_imageThreads[thno].m_imageName, m_imageThreads[thno].m_localImageName );
     }
     catch( const std::exception &e )
     {
@@ -368,7 +381,7 @@ inline void milkzmqClient::imageThreadExec( const std::string &imageName, const 
      */
 
     IMAGE image;
-    bool opened = false;
+    bool created = false;
 
     uint32_t imsize[3];
 
@@ -494,14 +507,20 @@ inline void milkzmqClient::imageThreadExec( const std::string &imageName, const 
                 imsize[1] = new_ny;
                 imsize[2] = 0;
 
-                if( opened )
+                if( created )
                 {
                     ImageStreamIO_destroyIm( &image );
+                    created = false;
                 }
 
-                ImageStreamIO_createIm( &image, shMemImName.c_str(), 2, imsize, new_atype, 1, 0, 0 );
+                if( ImageStreamIO_createIm( &image, shMemImName.c_str(), 2, imsize, new_atype, 1, 0, 0 ) != 0 )
+                {
+                    reportWarning( "Could not create local ImageStream " + shMemImName + ", reconnecting." );
+                    reconnect = true;
+                    continue;
+                }
 
-                opened = true;
+                created = true;
 
                 xe = xrif_set_size( xrif, new_nx, new_ny, 1, 1, new_atype );
                 xrif_set_difference_method( xrif, *( (int16_t *)( raw_image + xrifDifferenceOffset ) ) );
@@ -517,6 +536,13 @@ inline void milkzmqClient::imageThreadExec( const std::string &imageName, const 
 
             // This is not a rolling buffer.
             curr_image = 0;
+
+            if( !created )
+            {
+                reportWarning( "No local ImageStream is available for " + imageName + ", reconnecting." );
+                reconnect = true;
+                continue;
+            }
 
             size_t type_size = ImageStreamIO_typesize( image.md[0].datatype );
 
@@ -576,9 +602,11 @@ inline void milkzmqClient::imageThreadExec( const std::string &imageName, const 
 
         // To trigger a full reconnect:
 
-        if( opened )
-            ImageStreamIO_closeIm( &image );
-        opened = false;
+        if( created )
+        {
+            ImageStreamIO_destroyIm( &image );
+            created = false;
+        }
 
         atype = 0;
         nx = 0;
@@ -596,8 +624,8 @@ inline void milkzmqClient::imageThreadExec( const std::string &imageName, const 
 
     }  // outer loop (checking stale connections)
 
-    if( opened )
-        ImageStreamIO_closeIm( &image );
+    if( created )
+        ImageStreamIO_destroyIm( &image );
     xrif_delete( xrif );
 
 }  // milkzmqClient::imageThreadExec()
