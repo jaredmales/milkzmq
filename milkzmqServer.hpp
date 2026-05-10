@@ -700,6 +700,7 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
         int printed = 0;
 
         ino_t inode{ 0 };
+        off_t fileSize{ 0 };
 
         while( !opened && !m_timeToDie.load( std::memory_order_relaxed ) && restartEpoch() == localRestartEpoch )
         {
@@ -743,6 +744,7 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                     else
                     {
                         inode = statbuff.st_ino;
+                        fileSize = statbuff.st_size;
                     }
                 }
             }
@@ -953,6 +955,12 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                 if( statbuff.st_ino != inode )
                 {
                     std::cerr << "inode changed " << statbuff.st_ino << " " << inode << "\n";
+                    break;
+                }
+
+                if( statbuff.st_size != fileSize )
+                {
+                    std::cerr << "file size changed " << statbuff.st_size << " " << fileSize << "\n";
                     break;
                 }
 
