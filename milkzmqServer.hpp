@@ -97,11 +97,8 @@ class milkzmqServer
 
     std::unordered_map<routing_id_t, imageReceivedFlagMap_t> m_requestorMap;
 
-    /// Protects the requestor map and the shutdown buffers.
+    /// Protects the requestor map.
     std::mutex m_mapMutex;
-
-    /// Final image buffers, which ZeroMQ can still be reading while closing the socket.
-    std::vector<uint8_t *> m_shutdownBuffers;
 
     /// Structure to manage the image threads, including startup.
     struct s_imageThread
@@ -370,9 +367,6 @@ inline milkzmqServer::~milkzmqServer()
 
     delete m_server;
     delete m_ZMQ_context;
-
-    for( auto *buffer : m_shutdownBuffers )
-        free( buffer );
 }
 
 inline void milkzmqServer::requestRestart()
@@ -663,7 +657,7 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
 
     bool opened = false;
 
-    uint8_t *msg = nullptr;
+    std::vector<uint8_t> encodeBuffer;
 
     while( !m_serverReady.load( std::memory_order_acquire ) )
     {
@@ -776,22 +770,12 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
 
         xe = xrif_configure( xrif, xrifDifferenceMethod, xrifReorderMethod, xrifCompressMethod );
 
-        //---- Allocate the message
-        if( msg != nullptr )
-        {
-            // problem: if msg is not nullptr, then it means that it was allocated and
-            // most likely handed over to zmq for sending.  We can't afford to free it
-            // until zmq actually decides it's done with it.
-            // for now: we sleep.
-            sleep( 2 );
-            free( msg );
-        }
-        size_t msgSz = headerSize + xrif_min_raw_size( xrif );  // This is maximum message size.
-        msg = (uint8_t *)malloc( msgSz );
-
         //---- Allocate XRIF
         xe = xrif_set_size( xrif, last_snx, last_sny, 1, 1, last_atype );
-        xe = xrif_set_raw( xrif, msg + headerSize, xrif_min_raw_size( xrif ) );
+        const size_t rawSize = xrif_min_raw_size( xrif );
+        encodeBuffer.resize( headerSize + rawSize );
+        uint8_t *msg = encodeBuffer.data();
+        xe = xrif_set_raw( xrif, msg + headerSize, rawSize );
         xe = xrif_allocate_reordered( xrif );
 
         double lastCheck = get_curr_time();
@@ -903,35 +887,32 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                 *( (int16_t *)( msg + xrifCompressOffset ) ) = xrif->compress_method;
                 *( (uint32_t *)( msg + xrifSizeOffset ) ) = xrif->compressed_size;
 
-                // memcpy(msg + imageOffset, image.array.SI8 + curr_image*snx*sny*type_size, snx*sny*type_size);
-                // memcpy(msg+imageOffset, xrif->raw_buffer, xrif->compressed_size);
-
                 if( m_timeToDie.load( std::memory_order_relaxed ) || restartEpoch() != localRestartEpoch )
                     break;  // Check for exit signals
 
-                if( rids.size() > 0 )
+                // Give ZeroMQ its own bytes. All recipients share the same payload.
+                zmq::message_t payload( msg, headerSize + xrif->compressed_size );
+                for( auto rid : rids )
                 {
-                    for( size_t rid = 0; rid < rids.size(); ++rid )
+                    zmq::message_t frame;
+                    frame.copy( payload );
+                    frame.set_routing_id( rid );
+                    try
                     {
-                        zmq::message_t frame( msg, headerSize + xrif->compressed_size, nullptr, nullptr );  // this version will not copy the data.
-                        frame.set_routing_id( rids[rid] );
-                        try
-                        {
 #if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 3, 1 ) )
-                            m_server->send( frame, zmq::send_flags::dontwait );
+                        m_server->send( frame, zmq::send_flags::dontwait );
 #else
-                            m_server->send( frame, ZMQ_DONTWAIT );
+                        m_server->send( frame, ZMQ_DONTWAIT );
 #endif
 
-                            std::lock_guard<std::mutex> guard( m_mapMutex );
-                            m_requestorMap[rids[rid]][imageName] = false;
-                        }
-                        catch( ... )
-                        {
-                            // Assume this means the client is no longer connected
-                            std::lock_guard<std::mutex> guard( m_mapMutex );
-                            m_requestorMap.erase( rids[rid] );
-                        }
+                        std::lock_guard<std::mutex> guard( m_mapMutex );
+                        m_requestorMap[rid][imageName] = false;
+                    }
+                    catch( ... )
+                    {
+                        // Assume this means the client is no longer connected
+                        std::lock_guard<std::mutex> guard( m_mapMutex );
+                        m_requestorMap.erase( rid );
                     }
                 }
 
@@ -1041,11 +1022,6 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
     // One more check
     if( opened )
         ImageStreamIO_closeIm( &image );
-    if( msg )
-    {
-        std::lock_guard<std::mutex> guard( m_mapMutex );
-        m_shutdownBuffers.push_back( msg );
-    }
     if( xrif != nullptr )
         xrif_delete( xrif );
 

@@ -34,3 +34,5 @@ ims3_rand_send: test/ims3.o test/ims3_rand_send.o
 
 mzmq_reconnect_resize_test: test/mzmq_reconnect_resize_test.o
 	$(CXX) -o $@ $^ $(LDLIBS)
+
+test/mzmq_reconnect_resize_test.o: $(HEADER) milkzmqUtils.hpp

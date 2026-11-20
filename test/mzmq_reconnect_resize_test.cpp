@@ -5,6 +5,7 @@
  * This test launches milkzmqServer and milkzmqClient subprocesses, drives a
  * source ImageStreamIO stream through a passive write and a resize, then
  * interrupts and restarts the server and verifies the client-side stream continues updating.
+ * It also holds a received message across a later write to verify frame ownership.
  */
 
 #include <ImageStreamIO/ImageStreamIO.h>
@@ -19,6 +20,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include "../milkzmqServer.hpp"
 
 namespace
 {
@@ -109,6 +112,72 @@ class SourceStream
     bool m_opened{ false };
     std::vector<float> m_buffer;
     uint64_t m_seed{ 0 };
+};
+
+class InprocServer : public milkzmq::milkzmqServer
+{
+   public:
+    bool checkFrameOwnership( SourceStream &src, const std::string &name )
+    {
+        const char *endpoint = "inproc://frame-ownership-test";
+        m_server = new zmq::socket_t( *m_ZMQ_context, ZMQ_SERVER );
+        m_server->bind( endpoint );
+        m_serverReady.store( true, std::memory_order_release );
+
+        zmq::socket_t client( *m_ZMQ_context, ZMQ_CLIENT );
+        client.connect( endpoint );
+
+        const int timeoutMs = 3000;
+        if( zmq_setsockopt( m_server->handle(), ZMQ_RCVTIMEO, &timeoutMs, sizeof( timeoutMs ) ) != 0 ||
+            zmq_setsockopt( client.handle(), ZMQ_RCVTIMEO, &timeoutMs, sizeof( timeoutMs ) ) != 0 )
+            return false;
+
+        shMemImName( name );
+        if( imageThreadStart( 0 ) != 0 )
+            return false;
+
+        auto receiveNext = [&]( zmq::message_t &frame )
+        {
+            // Ask for a frame over inproc so the receiver can hold the original message storage.
+            zmq::message_t request;
+            if( zmq_send( client.handle(), name.data(), name.size(), 0 ) < 0 ||
+                zmq_msg_recv( request.handle(), m_server->handle(), 0 ) < 0 )
+                return false;
+
+            const auto rid = request.routing_id();
+            {
+                std::lock_guard<std::mutex> guard( m_mapMutex );
+                m_requestorMap[rid][name] = true;
+            }
+            if( zmq_msg_recv( frame.handle(), client.handle(), 0 ) <= static_cast<int>( milkzmq::headerSize ) )
+                return false;
+
+            // Wait for the image thread to clear this request before issuing another one.
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds( timeoutMs );
+            while( std::chrono::steady_clock::now() < deadline )
+            {
+                {
+                    std::lock_guard<std::mutex> guard( m_mapMutex );
+                    if( !m_requestorMap[rid][name] )
+                        return true;
+                }
+                std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+            }
+            return false;
+        };
+
+        zmq::message_t first;
+        if( !src.writeFrame() || !receiveNext( first ) )
+            return false;
+
+        const std::string firstBytes( static_cast<const char *>( first.data() ), first.size() );
+        zmq::message_t second;
+        if( !src.writeFrame() || !receiveNext( second ) || second.size() != first.size() )
+            return false;
+
+        return std::memcmp( first.data(), firstBytes.data(), firstBytes.size() ) == 0 &&
+               std::memcmp( second.data(), firstBytes.data(), firstBytes.size() ) != 0;
+    }
 };
 
 int waitForExit( pid_t pid, int timeoutSec, int *exitStatus = nullptr )
@@ -342,8 +411,17 @@ int main()
         std::cerr << "FAIL: idle server did not exit cleanly on SIGINT\n";
         return 1;
     }
+
+    {
+        InprocServer ownershipTest;
+        if( !ownershipTest.checkFrameOwnership( src, remoteName ) )
+        {
+            std::cerr << "FAIL: the server reused storage for a previously sent frame\n";
+            return 1;
+        }
+    }
     src.destroy();
 
-    std::cout << "PASS: passive write, resize, SIGINT shutdown, and reconnect\n";
+    std::cout << "PASS: passive write, resize, SIGINT shutdown, reconnect, and frame ownership\n";
     return 0;
 }
