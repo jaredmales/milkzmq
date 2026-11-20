@@ -895,7 +895,11 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                 for( auto rid : rids )
                 {
                     zmq::message_t frame;
+#if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 3, 1 ) )
                     frame.copy( payload );
+#else
+                    frame.copy( &payload );
+#endif
                     frame.set_routing_id( rid );
                     try
                     {

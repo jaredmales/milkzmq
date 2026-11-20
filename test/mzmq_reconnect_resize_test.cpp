@@ -128,9 +128,13 @@ class InprocServer : public milkzmq::milkzmqServer
         client.connect( endpoint );
 
         const int timeoutMs = 3000;
-        if( zmq_setsockopt( m_server->handle(), ZMQ_RCVTIMEO, &timeoutMs, sizeof( timeoutMs ) ) != 0 ||
-            zmq_setsockopt( client.handle(), ZMQ_RCVTIMEO, &timeoutMs, sizeof( timeoutMs ) ) != 0 )
-            return false;
+#if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 7, 0 ) )
+        m_server->set( zmq::sockopt::rcvtimeo, timeoutMs );
+        client.set( zmq::sockopt::rcvtimeo, timeoutMs );
+#else
+        m_server->setsockopt( ZMQ_RCVTIMEO, timeoutMs );
+        client.setsockopt( ZMQ_RCVTIMEO, timeoutMs );
+#endif
 
         shMemImName( name );
         if( imageThreadStart( 0 ) != 0 )
@@ -139,9 +143,12 @@ class InprocServer : public milkzmq::milkzmqServer
         auto receiveNext = [&]( zmq::message_t &frame )
         {
             // Ask for a frame over inproc so the receiver can hold the original message storage.
-            zmq::message_t request;
-            if( zmq_send( client.handle(), name.data(), name.size(), 0 ) < 0 ||
-                zmq_msg_recv( request.handle(), m_server->handle(), 0 ) < 0 )
+            zmq::message_t request( name.data(), name.size() );
+#if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 3, 1 ) )
+            if( !client.send( request, zmq::send_flags::none ) || !m_server->recv( request ) )
+#else
+            if( !client.send( request ) || !m_server->recv( &request ) )
+#endif
                 return false;
 
             const auto rid = request.routing_id();
@@ -149,7 +156,11 @@ class InprocServer : public milkzmq::milkzmqServer
                 std::lock_guard<std::mutex> guard( m_mapMutex );
                 m_requestorMap[rid][name] = true;
             }
-            if( zmq_msg_recv( frame.handle(), client.handle(), 0 ) <= static_cast<int>( milkzmq::headerSize ) )
+#if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 3, 1 ) )
+            if( !client.recv( frame ) || frame.size() <= milkzmq::headerSize )
+#else
+            if( !client.recv( &frame ) || frame.size() <= milkzmq::headerSize )
+#endif
                 return false;
 
             // Wait for the image thread to clear this request before issuing another one.
