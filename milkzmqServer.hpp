@@ -89,6 +89,8 @@ class milkzmqServer
 
     zmq::socket_t *m_server{ nullptr };  ///< The ZeroMQ server, allocated when the server thread starts up.
 
+    std::atomic_bool m_serverReady{ false };  ///< Publishes the bound socket to the image threads.
+
     std::thread m_serverThread;
 
     typedef uint32_t routing_id_t;
@@ -97,7 +99,7 @@ class milkzmqServer
 
     std::unordered_map<routing_id_t, imageReceivedFlagMap_t> m_requestorMap;
 
-    /// Mutex for locking map operations (allows asynchronous deletes).
+    /// Protects the requestor map.
     std::mutex m_mapMutex;
 
     /// Structure to manage the image threads, including startup.
@@ -174,7 +176,7 @@ class milkzmqServer
      */
     std::string shMemImName( size_t n );
 
-    /// Set the time to sleep between semaphore checks.
+    /// Set the time to sleep between frame metadata checks.
     /** Use this to tune the responsiveness vs. cpu use.
      *
      * This sets the value of m_usecSleep.
@@ -184,7 +186,7 @@ class milkzmqServer
      */
     int usecSleep( const int &usec /**< [in] the new sleep time in microseconds*/ );
 
-    /// Get the time to sleep between semaphore checks
+    /// Get the time to sleep between frame metadata checks.
     /**
      * \returns the curren value of m_usecSleep.
      */
@@ -274,10 +276,10 @@ class milkzmqServer
     /// Start the server thread.
     int serverThreadStart();
 
-    /// Execute the image thread.
+    /// Execute the server thread.
     void serverThreadExec();
 
-    /// Signal the server thread to kill it.
+    /// Request shutdown. The socket is released after the workers have joined.
     int serverThreadKill();
 
    private:
@@ -348,10 +350,7 @@ inline milkzmqServer::milkzmqServer()
 
 inline milkzmqServer::~milkzmqServer()
 {
-    m_timeToDie.store( true, std::memory_order_relaxed );
-
-    if( m_server )
-        m_server->close();
+    serverThreadKill();
 
     if( m_serverThread.joinable() )
         m_serverThread.join();
@@ -369,8 +368,8 @@ inline milkzmqServer::~milkzmqServer()
         }
     }
 
-    if( m_ZMQ_context )
-        delete m_ZMQ_context;
+    delete m_server;
+    delete m_ZMQ_context;
 }
 
 inline void milkzmqServer::requestRestart()
@@ -567,27 +566,37 @@ inline void milkzmqServer::serverThreadExec()
 
     m_server = new zmq::socket_t( *m_ZMQ_context, ZMQ_SERVER );
 
+    // Bound the receive wait and the time spent flushing queued messages on shutdown.
+#if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 3, 1 ) )
+    m_server->set( zmq::sockopt::rcvtimeo, 100 );
+    m_server->set( zmq::sockopt::linger, 100 );
+#else
+    m_server->setsockopt( ZMQ_RCVTIMEO, 100 );
+    m_server->setsockopt( ZMQ_LINGER, 100 );
+#endif
     m_server->bind( srvstr );
+    m_serverReady.store( true, std::memory_order_release );
 
     char reqShmim[1024];
 
-    while( !m_timeToDie.load( std::memory_order_relaxed ) )  // loop on timeToDie in case this gets interrupted by SIGSEGV/SIGBUS
+    while( !m_timeToDie.load( std::memory_order_relaxed ) )
     {
         zmq::message_t request;
 
         try
         {
-// Wait for next request from a client
+            // A receive timeout lets an idle server observe the shutdown flag.
 #if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 3, 1 ) )
-            static_cast<void>( m_server->recv( request ) );  // method has nodiscard attribute.
+            if( !m_server->recv( request ) )
 #else
-            m_server->recv( &request );
+            if( !m_server->recv( &request ) )
 #endif
+                continue;
         }
-        catch( ... )
+        catch( const zmq::error_t &e )
         {
-            if( m_timeToDie.load( std::memory_order_relaxed ) )
-                break;  // If an exception is thrown we check for timeToDie
+            if( e.num() == EINTR )
+                continue;
             throw;
         }
 
@@ -612,8 +621,6 @@ inline void milkzmqServer::serverThreadExec()
 inline int milkzmqServer::serverThreadKill()
 {
     m_timeToDie.store( true, std::memory_order_relaxed );
-    if( m_server )
-        m_server->close();
     return 0;
 }
 
@@ -674,9 +681,9 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
 
     bool opened = false;
 
-    std::vector<uint8_t> msgBuffer;
+    std::vector<uint8_t> encodeBuffer;
 
-    while( m_server == nullptr )
+    while( !m_serverReady.load( std::memory_order_acquire ) )
     {
         if( m_timeToDie.load( std::memory_order_relaxed ) )
             return;
@@ -754,7 +761,7 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
             }
         }
         if( m_timeToDie.load( std::memory_order_relaxed ) )
-            return;
+            break;
         if( !opened )
         {
             localRestartEpoch = restartEpoch();
@@ -789,26 +796,31 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
 
         xe = xrif_configure( xrif, xrifDifferenceMethod, xrifReorderMethod, xrifCompressMethod );
 
-        size_t msgSz = headerSize + xrif_min_raw_size( xrif );  // This is maximum message size.
-        msgBuffer.resize( msgSz );
-
         //---- Allocate XRIF
         xe = xrif_set_size( xrif, last_snx, last_sny, 1, 1, last_atype );
-        xe = xrif_set_raw( xrif, msgBuffer.data() + headerSize, xrif_min_raw_size( xrif ) );
+        const size_t rawSize = xrif_min_raw_size( xrif );
+        encodeBuffer.resize( headerSize + rawSize );
+        uint8_t *msg = encodeBuffer.data();
+        xe = xrif_set_raw( xrif, msg + headerSize, rawSize );
         xe = xrif_allocate_reordered( xrif );
 
         double lastCheck = get_curr_time();
         double lastSend = get_curr_time();
         double delta = 0;
 
-        uint64_t lastCnt0 = -1;  // Force treating first image as new image
+        uint64_t lastCnt0 = 0;
+        timespec lastWriteTime{};
+        bool firstFrame = true;
 
         std::vector<routing_id_t> rids;
 
         while( !m_timeToDie.load( std::memory_order_relaxed ) && restartEpoch() == localRestartEpoch )
         {
             uint64_t cnt0 = image.md[0].cnt0;
-            if( cnt0 != lastCnt0 )
+            timespec writeTime = image.md[0].writetime;
+            // Passive writes update writetime without advancing cnt0.
+            if( firstFrame || cnt0 != lastCnt0 || writeTime.tv_sec != lastWriteTime.tv_sec ||
+                writeTime.tv_nsec != lastWriteTime.tv_nsec )
             {
                 //-------- Do a wait for max fps here.
                 double currtime = get_curr_time();
@@ -858,6 +870,12 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                     break;  // exit the nearest while loop and get the new image setup.
                 }
 
+                if( image.md[0].write )
+                    continue;
+
+                cnt0 = image.md[0].cnt0;
+                writeTime = image.md[0].writetime;
+
                 if( image.md[0].size[2] > 0 )  ///\todo change to naxis?
                 {
                     curr_image = image.md[0].cnt1;
@@ -867,61 +885,64 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                 else
                     curr_image = 0;
 
-                cnt0 = image.md[0].cnt0;
-
                 // XRIF Encoding...
                 // Because of xrif->compress_on_raw == true, xrif->raw_buffer = msg + headerSize, this results in the encoded message being written to
                 // the message buffer.
                 memcpy( xrif->raw_buffer, image.array.SI8 + curr_image * snx * sny * type_size, snx * sny * type_size );
+
+                // Retry if another frame was written while copying this one.
+                if( image.md[0].write || image.md[0].cnt0 != cnt0 || image.md[0].writetime.tv_sec != writeTime.tv_sec ||
+                    image.md[0].writetime.tv_nsec != writeTime.tv_nsec )
+                    continue;
+
                 xe = xrif_encode( xrif );
 
                 // std::cerr << imageName << " XRIF: " << xrif->compression_ratio*100. << "%\n";
 
                 //----Now construct header
-                uint8_t *msg = msgBuffer.data();
                 memset( msg, 0, headerSize );
                 snprintf( (char *)msg, nameSize, "%s", imageName.c_str() );
                 *( (uint8_t *)( msg + typeOffset ) ) = atype;
                 *( (uint32_t *)( msg + size0Offset ) ) = snx;
                 *( (uint32_t *)( msg + size1Offset ) ) = sny;
-                *( (uint64_t *)( msg + cnt0Offset ) ) = image.md[0].cnt0;
-                *( (uint64_t *)( msg + tv_secOffset ) ) = image.md[0].writetime.tv_sec;
-                *( (uint64_t *)( msg + tv_nsecOffset ) ) = image.md[0].writetime.tv_nsec;
+                *( (uint64_t *)( msg + cnt0Offset ) ) = cnt0;
+                *( (uint64_t *)( msg + tv_secOffset ) ) = writeTime.tv_sec;
+                *( (uint64_t *)( msg + tv_nsecOffset ) ) = writeTime.tv_nsec;
                 *( (int16_t *)( msg + xrifDifferenceOffset ) ) = xrif->difference_method;
                 *( (int16_t *)( msg + xrifReorderOffset ) ) = xrif->reorder_method;
                 *( (int16_t *)( msg + xrifCompressOffset ) ) = xrif->compress_method;
                 *( (uint32_t *)( msg + xrifSizeOffset ) ) = xrif->compressed_size;
 
-                // memcpy(msg + imageOffset, image.array.SI8 + curr_image*snx*sny*type_size, snx*sny*type_size);
-                // memcpy(msg+imageOffset, xrif->raw_buffer, xrif->compressed_size);
-
                 if( m_timeToDie.load( std::memory_order_relaxed ) || restartEpoch() != localRestartEpoch )
                     break;  // Check for exit signals
 
-                if( rids.size() > 0 )
+                // Give ZeroMQ its own bytes. All recipients share the same payload.
+                zmq::message_t payload( msg, headerSize + xrif->compressed_size );
+                for( auto rid : rids )
                 {
-                    for( size_t rid = 0; rid < rids.size(); ++rid )
-                    {
-                        zmq::message_t frame( headerSize + xrif->compressed_size );
-                        memcpy( frame.data(), msgBuffer.data(), frame.size() );
-                        frame.set_routing_id( rids[rid] );
-                        try
-                        {
+                    zmq::message_t frame;
 #if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 3, 1 ) )
-                            m_server->send( frame, zmq::send_flags::dontwait );
+                    frame.copy( payload );
 #else
-                            m_server->send( frame, ZMQ_DONTWAIT );
+                    frame.copy( &payload );
+#endif
+                    frame.set_routing_id( rid );
+                    try
+                    {
+#if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 3, 1 ) )
+                        m_server->send( frame, zmq::send_flags::dontwait );
+#else
+                        m_server->send( frame, ZMQ_DONTWAIT );
 #endif
 
-                            std::lock_guard<std::mutex> guard( m_mapMutex );
-                            m_requestorMap[rids[rid]][imageName] = false;
-                        }
-                        catch( ... )
-                        {
-                            // Assume this means the client is no longer connected
-                            std::lock_guard<std::mutex> guard( m_mapMutex );
-                            m_requestorMap.erase( rids[rid] );
-                        }
+                        std::lock_guard<std::mutex> guard( m_mapMutex );
+                        m_requestorMap[rid][imageName] = false;
+                    }
+                    catch( ... )
+                    {
+                        // Assume this means the client is no longer connected
+                        std::lock_guard<std::mutex> guard( m_mapMutex );
+                        m_requestorMap.erase( rid );
                     }
                 }
 
@@ -931,6 +952,8 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                 delta += m_fpsGain * ( ct - lastSend - 1.0 / m_fpsTgt );
                 lastSend = ct;
                 lastCnt0 = cnt0;
+                lastWriteTime = writeTime;
+                firstFrame = false;
             }
             else
             {
