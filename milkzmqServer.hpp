@@ -173,7 +173,7 @@ class milkzmqServer
      */
     std::string shMemImName( size_t n );
 
-    /// Set the time to sleep between semaphore checks.
+    /// Set the time to sleep between frame metadata checks.
     /** Use this to tune the responsiveness vs. cpu use.
      *
      * This sets the value of m_usecSleep.
@@ -183,7 +183,7 @@ class milkzmqServer
      */
     int usecSleep( const int &usec /**< [in] the new sleep time in microseconds*/ );
 
-    /// Get the time to sleep between semaphore checks
+    /// Get the time to sleep between frame metadata checks.
     /**
      * \returns the curren value of m_usecSleep.
      */
@@ -785,14 +785,19 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
         double lastSend = get_curr_time();
         double delta = 0;
 
-        uint64_t lastCnt0 = -1;  // Force treating first image as new image
+        uint64_t lastCnt0 = 0;
+        timespec lastWriteTime{};
+        bool firstFrame = true;
 
         std::vector<routing_id_t> rids;
 
         while( !m_timeToDie.load( std::memory_order_relaxed ) && restartEpoch() == localRestartEpoch )
         {
             uint64_t cnt0 = image.md[0].cnt0;
-            if( cnt0 != lastCnt0 )
+            timespec writeTime = image.md[0].writetime;
+            // Passive writes update writetime without advancing cnt0.
+            if( firstFrame || cnt0 != lastCnt0 || writeTime.tv_sec != lastWriteTime.tv_sec ||
+                writeTime.tv_nsec != lastWriteTime.tv_nsec )
             {
                 //-------- Do a wait for max fps here.
                 double currtime = get_curr_time();
@@ -842,6 +847,12 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                     break;  // exit the nearest while loop and get the new image setup.
                 }
 
+                if( image.md[0].write )
+                    continue;
+
+                cnt0 = image.md[0].cnt0;
+                writeTime = image.md[0].writetime;
+
                 if( image.md[0].size[2] > 0 )  ///\todo change to naxis?
                 {
                     curr_image = image.md[0].cnt1;
@@ -851,12 +862,16 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                 else
                     curr_image = 0;
 
-                cnt0 = image.md[0].cnt0;
-
                 // XRIF Encoding...
                 // Because of xrif->compress_on_raw == true, xrif->raw_buffer = msg + headerSize, this results in the encoded message being written to
                 // the message buffer.
                 memcpy( xrif->raw_buffer, image.array.SI8 + curr_image * snx * sny * type_size, snx * sny * type_size );
+
+                // Retry if another frame was written while copying this one.
+                if( image.md[0].write || image.md[0].cnt0 != cnt0 || image.md[0].writetime.tv_sec != writeTime.tv_sec ||
+                    image.md[0].writetime.tv_nsec != writeTime.tv_nsec )
+                    continue;
+
                 xe = xrif_encode( xrif );
 
                 // std::cerr << imageName << " XRIF: " << xrif->compression_ratio*100. << "%\n";
@@ -867,9 +882,9 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                 *( (uint8_t *)( msg + typeOffset ) ) = atype;
                 *( (uint32_t *)( msg + size0Offset ) ) = snx;
                 *( (uint32_t *)( msg + size1Offset ) ) = sny;
-                *( (uint64_t *)( msg + cnt0Offset ) ) = image.md[0].cnt0;
-                *( (uint64_t *)( msg + tv_secOffset ) ) = image.md[0].writetime.tv_sec;
-                *( (uint64_t *)( msg + tv_nsecOffset ) ) = image.md[0].writetime.tv_nsec;
+                *( (uint64_t *)( msg + cnt0Offset ) ) = cnt0;
+                *( (uint64_t *)( msg + tv_secOffset ) ) = writeTime.tv_sec;
+                *( (uint64_t *)( msg + tv_nsecOffset ) ) = writeTime.tv_nsec;
                 *( (int16_t *)( msg + xrifDifferenceOffset ) ) = xrif->difference_method;
                 *( (int16_t *)( msg + xrifReorderOffset ) ) = xrif->reorder_method;
                 *( (int16_t *)( msg + xrifCompressOffset ) ) = xrif->compress_method;
@@ -913,6 +928,8 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                 delta += m_fpsGain * ( ct - lastSend - 1.0 / m_fpsTgt );
                 lastSend = ct;
                 lastCnt0 = cnt0;
+                lastWriteTime = writeTime;
+                firstFrame = false;
             }
             else
             {

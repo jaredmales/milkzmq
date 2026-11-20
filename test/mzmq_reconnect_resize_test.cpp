@@ -1,10 +1,10 @@
 /** \file mzmq_reconnect_resize_test.cpp
- * \brief Integration test for milkzmq reconnect and resize behavior.
+ * \brief Integration test for milkzmq passive writes, reconnect, and resize.
  * \author Jared R. Males (jaredmales@gmail.com)
  *
  * This test launches milkzmqServer and milkzmqClient subprocesses, drives a
- * source ImageStreamIO stream through a resize, then restarts the server and
- * verifies the client-side stream continues updating.
+ * source ImageStreamIO stream through a passive write and a resize, then
+ * restarts the server and verifies the client-side stream continues updating.
  */
 
 #include <ImageStreamIO/ImageStreamIO.h>
@@ -34,6 +34,8 @@ struct LocalState
     uint32_t nx{ 0 };
     uint32_t ny{ 0 };
     uint64_t cnt0{ 0 };
+    timespec writeTime{};
+    float firstPixel{ 0 };
 };
 
 class SourceStream
@@ -73,7 +75,7 @@ class SourceStream
         }
     }
 
-    bool writeFrame()
+    bool writeFrame( bool passive = false )
     {
         if( !m_opened )
             return false;
@@ -91,10 +93,13 @@ class SourceStream
 
         m_image.md[0].write = 1;
         std::memcpy( m_image.array.raw, m_buffer.data(), bytes );
+        if( passive )
+            clock_gettime( CLOCK_REALTIME, &m_image.md[0].writetime );
+        else
+            ++m_image.md[0].cnt0;
         m_image.md[0].write = 0;
-        ++m_image.md[0].cnt0;
-        clock_gettime( CLOCK_REALTIME, &m_image.md[0].writetime );
-        ImageStreamIO_sempost( &m_image, -1 );
+        if( !passive )
+            ImageStreamIO_sempost( &m_image, -1 );
 
         return true;
     }
@@ -178,9 +183,29 @@ LocalState probeLocal( const std::string &name )
     st.nx = image.md[0].size[0];
     st.ny = image.md[0].size[1];
     st.cnt0 = image.md[0].cnt0;
+    st.writeTime = image.md[0].writetime;
+    st.firstPixel = image.array.F[0];
 
     ImageStreamIO_closeIm( &image );
     return st;
+}
+
+bool waitForFrame( const std::string &localName, const LocalState &expected )
+{
+    if( !expected.found )
+        return false;
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds( 5 );
+    while( std::chrono::steady_clock::now() < deadline )
+    {
+        LocalState st = probeLocal( localName );
+        if( st.found && st.cnt0 == expected.cnt0 && st.writeTime.tv_sec == expected.writeTime.tv_sec &&
+            st.writeTime.tv_nsec == expected.writeTime.tv_nsec && st.firstPixel == expected.firstPixel )
+            return true;
+
+        std::this_thread::sleep_for( std::chrono::milliseconds( 20 ) );
+    }
+    return false;
 }
 
 bool waitForState( const std::string &localName, uint32_t wantNx, uint32_t wantNy, uint64_t minCnt, int timeoutSec, SourceStream &src )
@@ -242,6 +267,16 @@ int main()
         return 1;
     }
 
+    const LocalState beforePassive = probeLocal( remoteName );
+    if( !waitForFrame( localName, beforePassive ) || !src.writeFrame( true ) ||
+        !waitForFrame( localName, probeLocal( remoteName ) ) )
+    {
+        terminateProc( client );
+        terminateProc( server );
+        std::cerr << "FAIL: passive write did not propagate to client\n";
+        return 1;
+    }
+
     if( !src.create( remoteName, 48, 16, _DATATYPE_FLOAT ) )
     {
         terminateProc( client );
@@ -283,6 +318,6 @@ int main()
     terminateProc( server );
     src.destroy();
 
-    std::cout << "PASS: reconnect + resize test passed\n";
+    std::cout << "PASS: passive write + reconnect + resize test passed\n";
     return 0;
 }
