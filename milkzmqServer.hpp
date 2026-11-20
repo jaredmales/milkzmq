@@ -87,6 +87,8 @@ class milkzmqServer
 
     zmq::socket_t *m_server{ nullptr };  ///< The ZeroMQ server, allocated when the server thread starts up.
 
+    std::atomic_bool m_serverReady{ false };  ///< Publishes the bound socket to the image threads.
+
     std::thread m_serverThread;
 
     typedef uint32_t routing_id_t;
@@ -95,8 +97,11 @@ class milkzmqServer
 
     std::unordered_map<routing_id_t, imageReceivedFlagMap_t> m_requestorMap;
 
-    /// Mutex for locking map operations (allows asynchronous deletes).
+    /// Protects the requestor map and the shutdown buffers.
     std::mutex m_mapMutex;
+
+    /// Final image buffers, which ZeroMQ can still be reading while closing the socket.
+    std::vector<uint8_t *> m_shutdownBuffers;
 
     /// Structure to manage the image threads, including startup.
     struct s_imageThread
@@ -273,10 +278,10 @@ class milkzmqServer
     /// Start the server thread.
     int serverThreadStart();
 
-    /// Execute the image thread.
+    /// Execute the server thread.
     void serverThreadExec();
 
-    /// Signal the server thread to kill it.
+    /// Request shutdown. The socket is released after the workers have joined.
     int serverThreadKill();
 
    private:
@@ -345,10 +350,7 @@ inline milkzmqServer::milkzmqServer()
 
 inline milkzmqServer::~milkzmqServer()
 {
-    m_timeToDie.store( true, std::memory_order_relaxed );
-
-    if( m_server )
-        m_server->close();
+    serverThreadKill();
 
     if( m_serverThread.joinable() )
         m_serverThread.join();
@@ -366,8 +368,11 @@ inline milkzmqServer::~milkzmqServer()
         }
     }
 
-    if( m_ZMQ_context )
-        delete m_ZMQ_context;
+    delete m_server;
+    delete m_ZMQ_context;
+
+    for( auto *buffer : m_shutdownBuffers )
+        free( buffer );
 }
 
 inline void milkzmqServer::requestRestart()
@@ -554,27 +559,37 @@ inline void milkzmqServer::serverThreadExec()
 
     m_server = new zmq::socket_t( *m_ZMQ_context, ZMQ_SERVER );
 
+    // Bound the receive wait and the time spent flushing queued messages on shutdown.
+#if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 3, 1 ) )
+    m_server->set( zmq::sockopt::rcvtimeo, 100 );
+    m_server->set( zmq::sockopt::linger, 100 );
+#else
+    m_server->setsockopt( ZMQ_RCVTIMEO, 100 );
+    m_server->setsockopt( ZMQ_LINGER, 100 );
+#endif
     m_server->bind( srvstr );
+    m_serverReady.store( true, std::memory_order_release );
 
     char reqShmim[1024];
 
-    while( !m_timeToDie.load( std::memory_order_relaxed ) )  // loop on timeToDie in case this gets interrupted by SIGSEGV/SIGBUS
+    while( !m_timeToDie.load( std::memory_order_relaxed ) )
     {
         zmq::message_t request;
 
         try
         {
-// Wait for next request from a client
+            // A receive timeout lets an idle server observe the shutdown flag.
 #if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 3, 1 ) )
-            static_cast<void>( m_server->recv( request ) );  // method has nodiscard attribute.
+            if( !m_server->recv( request ) )
 #else
-            m_server->recv( &request );
+            if( !m_server->recv( &request ) )
 #endif
+                continue;
         }
-        catch( ... )
+        catch( const zmq::error_t &e )
         {
-            if( m_timeToDie.load( std::memory_order_relaxed ) )
-                break;  // If an exception is thrown we check for timeToDie
+            if( e.num() == EINTR )
+                continue;
             throw;
         }
 
@@ -599,8 +614,6 @@ inline void milkzmqServer::serverThreadExec()
 inline int milkzmqServer::serverThreadKill()
 {
     m_timeToDie.store( true, std::memory_order_relaxed );
-    if( m_server )
-        m_server->close();
     return 0;
 }
 
@@ -652,7 +665,7 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
 
     uint8_t *msg = nullptr;
 
-    while( m_server == nullptr )
+    while( !m_serverReady.load( std::memory_order_acquire ) )
     {
         if( m_timeToDie.load( std::memory_order_relaxed ) )
             return;
@@ -728,7 +741,7 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
             }
         }
         if( m_timeToDie.load( std::memory_order_relaxed ) )
-            return;
+            break;
         if( !opened )
         {
             localRestartEpoch = restartEpoch();
@@ -1003,7 +1016,7 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
 
         for( size_t rid = 0; rid < rids.size(); ++rid )
         {
-            zmq::message_t frame( &zero, sizeof( char ), nullptr, nullptr );
+            zmq::message_t frame( &zero, sizeof( char ) );
             frame.set_routing_id( rids[rid] );
             try
             {
@@ -1029,7 +1042,10 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
     if( opened )
         ImageStreamIO_closeIm( &image );
     if( msg )
-        free( msg );
+    {
+        std::lock_guard<std::mutex> guard( m_mapMutex );
+        m_shutdownBuffers.push_back( msg );
+    }
     if( xrif != nullptr )
         xrif_delete( xrif );
 

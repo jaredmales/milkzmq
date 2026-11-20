@@ -1,10 +1,10 @@
 /** \file mzmq_reconnect_resize_test.cpp
- * \brief Integration test for milkzmq passive writes, reconnect, and resize.
+ * \brief Integration test for milkzmq passive writes, resize, shutdown, and reconnect.
  * \author Jared R. Males (jaredmales@gmail.com)
  *
  * This test launches milkzmqServer and milkzmqClient subprocesses, drives a
  * source ImageStreamIO stream through a passive write and a resize, then
- * restarts the server and verifies the client-side stream continues updating.
+ * interrupts and restarts the server and verifies the client-side stream continues updating.
  */
 
 #include <ImageStreamIO/ImageStreamIO.h>
@@ -111,7 +111,7 @@ class SourceStream
     uint64_t m_seed{ 0 };
 };
 
-int waitForExit( pid_t pid, int timeoutSec )
+int waitForExit( pid_t pid, int timeoutSec, int *exitStatus = nullptr )
 {
     auto start = std::chrono::steady_clock::now();
     int status = 0;
@@ -119,7 +119,11 @@ int waitForExit( pid_t pid, int timeoutSec )
     {
         pid_t rv = waitpid( pid, &status, WNOHANG );
         if( rv == pid )
+        {
+            if( exitStatus )
+                *exitStatus = status;
             return 0;
+        }
         if( rv < 0 )
             return -1;
 
@@ -143,6 +147,19 @@ void terminateProc( Proc &p )
         static_cast<void>( waitForExit( p.pid, 2 ) );
     }
     p.pid = -1;
+}
+
+bool interruptServer( Proc &p )
+{
+    int status;
+    if( kill( p.pid, SIGINT ) != 0 || waitForExit( p.pid, 4, &status ) != 0 )
+    {
+        terminateProc( p );
+        return false;
+    }
+
+    p.pid = -1;
+    return WIFEXITED( status ) && WEXITSTATUS( status ) == 0;
 }
 
 Proc launchProc( const std::vector<std::string> &argv )
@@ -293,7 +310,12 @@ int main()
         return 1;
     }
 
-    terminateProc( server );
+    if( !interruptServer( server ) )
+    {
+        terminateProc( client );
+        std::cerr << "FAIL: server did not exit cleanly on SIGINT with a connected client\n";
+        return 1;
+    }
     std::this_thread::sleep_for( std::chrono::milliseconds( 300 ) );
 
     server = launchProc( { "./milkzmqServer", "-p", std::to_string( port ), remoteName } );
@@ -315,9 +337,13 @@ int main()
     }
 
     terminateProc( client );
-    terminateProc( server );
+    if( !interruptServer( server ) )
+    {
+        std::cerr << "FAIL: idle server did not exit cleanly on SIGINT\n";
+        return 1;
+    }
     src.destroy();
 
-    std::cout << "PASS: passive write + reconnect + resize test passed\n";
+    std::cout << "PASS: passive write, resize, SIGINT shutdown, and reconnect\n";
     return 0;
 }
