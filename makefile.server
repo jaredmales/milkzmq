@@ -8,7 +8,7 @@ BIN_PATH	?= $(HOME)/bin
 INC_PATH	?= $(HOME)/include
 LIB_PATH	?= $(HOME)/lib
 OPTIMIZE 	?= -O3 -ffast-math
-INCLUDES 	+= -I$(INC_PATH) -Itest
+INCLUDES 	+= $(addprefix -I,$(MILK_INC_PATH)) -I$(INC_PATH) -Itest
 CXXFLAGS 	+= -std=c++23 $(OPTIMIZE) $(INCLUDES)
 LDLIBS 		+= -lzmq -L$(LIB_PATH) -lImageStreamIO -lxrif -lpthread
 

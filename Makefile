@@ -4,7 +4,8 @@
 
 ifeq ($(wildcard /opt/magaox),)
 export BIN_PATH	:= /usr/local/bin
-export INC_PATH	:= /usr/local/milk/include
+export INC_PATH	:= /usr/local/include
+export MILK_INC_PATH ?= /usr/local/milk/include
 export LIB_PATH	:= /usr/local/milk/lib
 else
 export BIN_PATH	:= /opt/magaox/bin
