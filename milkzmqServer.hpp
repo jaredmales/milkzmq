@@ -35,10 +35,12 @@
 
 #include <atomic>
 #include <boost/algorithm/string/predicate.hpp>
+#include <cstring>
 #include <filesystem>
 #include <list>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 #define ZMQ_BUILD_DRAFT_API
 #define ZMQ_CPP11
@@ -103,7 +105,6 @@ class milkzmqServer
     {
         std::thread *m_thread{
             nullptr };            ///< Thread for publishing image slice updates.  A pointer to allow copying, but must be deleted in d'tor of parent.
-        milkzmqServer *m_mzs;     ///< a pointer to a milkzmqServer instance (normally this)
         std::string m_imageName;  ///< the name of the image to serve from this thread
 
         /// C'tor to create the thread object
@@ -281,7 +282,9 @@ class milkzmqServer
 
    private:
     /// Image thread starter, called by imageThreadStart on thread construction.  Calls imageThreadExec.
-    static void internal_imageThreadStart( s_imageThread *mit /**< [in] a pointer to an s_imageThread structure */ );
+    static void internal_imageThreadStart( milkzmqServer *mzs,   /**< [in] the server instance executing the thread */
+                                           std::string imageName /**< [in] the image stream to monitor and publish */
+    );
 
    public:
     /// Start the image thread.
@@ -409,7 +412,6 @@ inline int milkzmqServer::shMemImName( const std::string &name )
 {
     s_imageThread nt;
 
-    nt.m_mzs = this;
     nt.m_imageName = name;
 
     m_imageThreads.push_back( nt );
@@ -509,7 +511,18 @@ inline int milkzmqServer::xrifCompressMethod()
 
 inline void milkzmqServer::internal_serverThreadStart( milkzmqServer *mzs )
 {
-    mzs->serverThreadExec();
+    try
+    {
+        mzs->serverThreadExec();
+    }
+    catch( const std::exception &e )
+    {
+        mzs->reportError( std::string( "exception in server thread execution: " ) + e.what(), __FILE__, __LINE__ );
+    }
+    catch( ... )
+    {
+        mzs->reportError( "unknown exception in server thread execution", __FILE__, __LINE__ );
+    }
 }
 
 inline int milkzmqServer::serverThreadStart()
@@ -604,16 +617,27 @@ inline int milkzmqServer::serverThreadKill()
     return 0;
 }
 
-inline void milkzmqServer::internal_imageThreadStart( s_imageThread *mit )
+inline void milkzmqServer::internal_imageThreadStart( milkzmqServer *mzs, std::string imageName )
 {
-    mit->m_mzs->imageThreadExec( mit->m_imageName );
+    try
+    {
+        mzs->imageThreadExec( imageName );
+    }
+    catch( const std::exception &e )
+    {
+        mzs->reportError( std::string( "exception in image thread execution: " ) + e.what(), __FILE__, __LINE__ );
+    }
+    catch( ... )
+    {
+        mzs->reportError( "unknown exception in image thread execution", __FILE__, __LINE__ );
+    }
 }
 
 inline int milkzmqServer::imageThreadStart( size_t thno )
 {
     try
     {
-        *m_imageThreads[thno].m_thread = std::thread( internal_imageThreadStart, &m_imageThreads[thno] );
+        *m_imageThreads[thno].m_thread = std::thread( internal_imageThreadStart, this, m_imageThreads[thno].m_imageName );
     }
     catch( const std::exception &e )
     {
@@ -650,7 +674,7 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
 
     bool opened = false;
 
-    uint8_t *msg = nullptr;
+    std::vector<uint8_t> msgBuffer;
 
     while( m_server == nullptr )
     {
@@ -676,6 +700,7 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
         int printed = 0;
 
         ino_t inode{ 0 };
+        off_t fileSize{ 0 };
 
         while( !opened && !m_timeToDie.load( std::memory_order_relaxed ) && restartEpoch() == localRestartEpoch )
         {
@@ -719,6 +744,7 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                     else
                     {
                         inode = statbuff.st_ino;
+                        fileSize = statbuff.st_size;
                     }
                 }
             }
@@ -763,22 +789,12 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
 
         xe = xrif_configure( xrif, xrifDifferenceMethod, xrifReorderMethod, xrifCompressMethod );
 
-        //---- Allocate the message
-        if( msg != nullptr )
-        {
-            // problem: if msg is not nullptr, then it means that it was allocated and
-            // most likely handed over to zmq for sending.  We can't afford to free it
-            // until zmq actually decides it's done with it.
-            // for now: we sleep.
-            sleep( 2 );
-            free( msg );
-        }
         size_t msgSz = headerSize + xrif_min_raw_size( xrif );  // This is maximum message size.
-        msg = (uint8_t *)malloc( msgSz );
+        msgBuffer.resize( msgSz );
 
         //---- Allocate XRIF
         xe = xrif_set_size( xrif, last_snx, last_sny, 1, 1, last_atype );
-        xe = xrif_set_raw( xrif, msg + headerSize, xrif_min_raw_size( xrif ) );
+        xe = xrif_set_raw( xrif, msgBuffer.data() + headerSize, xrif_min_raw_size( xrif ) );
         xe = xrif_allocate_reordered( xrif );
 
         double lastCheck = get_curr_time();
@@ -862,6 +878,7 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                 // std::cerr << imageName << " XRIF: " << xrif->compression_ratio*100. << "%\n";
 
                 //----Now construct header
+                uint8_t *msg = msgBuffer.data();
                 memset( msg, 0, headerSize );
                 snprintf( (char *)msg, nameSize, "%s", imageName.c_str() );
                 *( (uint8_t *)( msg + typeOffset ) ) = atype;
@@ -885,7 +902,8 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                 {
                     for( size_t rid = 0; rid < rids.size(); ++rid )
                     {
-                        zmq::message_t frame( msg, headerSize + xrif->compressed_size, nullptr, nullptr );  // this version will not copy the data.
+                        zmq::message_t frame( headerSize + xrif->compressed_size );
+                        memcpy( frame.data(), msgBuffer.data(), frame.size() );
                         frame.set_routing_id( rids[rid] );
                         try
                         {
@@ -940,6 +958,12 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
                     break;
                 }
 
+                if( statbuff.st_size != fileSize )
+                {
+                    std::cerr << "file size changed " << statbuff.st_size << " " << fileSize << "\n";
+                    break;
+                }
+
                 milkzmq::microsleep( m_usecSleep );
 
                 // If delay is long, we reset the loop b/c we aren't doing any good anyway, and this prevents over shoot on a reconnect
@@ -982,11 +1006,10 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
     }
     if( rids.size() > 0 )
     {
-        char zero = '\0';
-
         for( size_t rid = 0; rid < rids.size(); ++rid )
         {
-            zmq::message_t frame( &zero, sizeof( char ), nullptr, nullptr );
+            zmq::message_t frame( sizeof( char ) );
+            *( static_cast<char *>( frame.data() ) ) = '\0';
             frame.set_routing_id( rids[rid] );
             try
             {
@@ -1011,8 +1034,6 @@ inline void milkzmqServer::imageThreadExec( const std::string &imageName )
     // One more check
     if( opened )
         ImageStreamIO_closeIm( &image );
-    if( msg )
-        free( msg );
     if( xrif != nullptr )
         xrif_delete( xrif );
 
