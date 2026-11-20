@@ -1,10 +1,11 @@
 /** \file mzmq_reconnect_resize_test.cpp
- * \brief Integration test for milkzmq reconnect and resize behavior.
+ * \brief Integration test for milkzmq passive writes, resize, shutdown, and reconnect.
  * \author Jared R. Males (jaredmales@gmail.com)
  *
  * This test launches milkzmqServer and milkzmqClient subprocesses, drives a
- * source ImageStreamIO stream through a resize, then restarts the server and
- * verifies the client-side stream continues updating.
+ * source ImageStreamIO stream through a passive write and a resize, then
+ * interrupts and restarts the server and verifies the client-side stream continues updating.
+ * It also holds a received message across a later write to verify frame ownership.
  */
 
 #include <ImageStreamIO/ImageStreamIO.h>
@@ -20,6 +21,8 @@
 #include <thread>
 #include <vector>
 
+#include "../milkzmqServer.hpp"
+
 namespace
 {
 
@@ -34,6 +37,8 @@ struct LocalState
     uint32_t nx{ 0 };
     uint32_t ny{ 0 };
     uint64_t cnt0{ 0 };
+    timespec writeTime{};
+    float firstPixel{ 0 };
 };
 
 class SourceStream
@@ -73,7 +78,7 @@ class SourceStream
         }
     }
 
-    bool writeFrame()
+    bool writeFrame( bool passive = false )
     {
         if( !m_opened )
             return false;
@@ -91,10 +96,13 @@ class SourceStream
 
         m_image.md[0].write = 1;
         std::memcpy( m_image.array.raw, m_buffer.data(), bytes );
+        if( passive )
+            clock_gettime( CLOCK_REALTIME, &m_image.md[0].writetime );
+        else
+            ++m_image.md[0].cnt0;
         m_image.md[0].write = 0;
-        ++m_image.md[0].cnt0;
-        clock_gettime( CLOCK_REALTIME, &m_image.md[0].writetime );
-        ImageStreamIO_sempost( &m_image, -1 );
+        if( !passive )
+            ImageStreamIO_sempost( &m_image, -1 );
 
         return true;
     }
@@ -106,7 +114,84 @@ class SourceStream
     uint64_t m_seed{ 0 };
 };
 
-int waitForExit( pid_t pid, int timeoutSec )
+class InprocServer : public milkzmq::milkzmqServer
+{
+   public:
+    bool checkFrameOwnership( SourceStream &src, const std::string &name )
+    {
+        const char *endpoint = "inproc://frame-ownership-test";
+        m_server = new zmq::socket_t( *m_ZMQ_context, ZMQ_SERVER );
+        m_server->bind( endpoint );
+        m_serverReady.store( true, std::memory_order_release );
+
+        zmq::socket_t client( *m_ZMQ_context, ZMQ_CLIENT );
+        client.connect( endpoint );
+
+        const int timeoutMs = 3000;
+#if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 7, 0 ) )
+        m_server->set( zmq::sockopt::rcvtimeo, timeoutMs );
+        client.set( zmq::sockopt::rcvtimeo, timeoutMs );
+#else
+        m_server->setsockopt( ZMQ_RCVTIMEO, timeoutMs );
+        client.setsockopt( ZMQ_RCVTIMEO, timeoutMs );
+#endif
+
+        shMemImName( name );
+        if( imageThreadStart( 0 ) != 0 )
+            return false;
+
+        auto receiveNext = [&]( zmq::message_t &frame )
+        {
+            // Ask for a frame over inproc so the receiver can hold the original message storage.
+            zmq::message_t request( name.data(), name.size() );
+#if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 3, 1 ) )
+            if( !client.send( request, zmq::send_flags::none ) || !m_server->recv( request ) )
+#else
+            if( !client.send( request ) || !m_server->recv( &request ) )
+#endif
+                return false;
+
+            const auto rid = request.routing_id();
+            {
+                std::lock_guard<std::mutex> guard( m_mapMutex );
+                m_requestorMap[rid][name] = true;
+            }
+#if( CPPZMQ_VERSION >= ZMQ_MAKE_VERSION( 4, 3, 1 ) )
+            if( !client.recv( frame ) || frame.size() <= milkzmq::headerSize )
+#else
+            if( !client.recv( &frame ) || frame.size() <= milkzmq::headerSize )
+#endif
+                return false;
+
+            // Wait for the image thread to clear this request before issuing another one.
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds( timeoutMs );
+            while( std::chrono::steady_clock::now() < deadline )
+            {
+                {
+                    std::lock_guard<std::mutex> guard( m_mapMutex );
+                    if( !m_requestorMap[rid][name] )
+                        return true;
+                }
+                std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+            }
+            return false;
+        };
+
+        zmq::message_t first;
+        if( !src.writeFrame() || !receiveNext( first ) )
+            return false;
+
+        const std::string firstBytes( static_cast<const char *>( first.data() ), first.size() );
+        zmq::message_t second;
+        if( !src.writeFrame() || !receiveNext( second ) || second.size() != first.size() )
+            return false;
+
+        return std::memcmp( first.data(), firstBytes.data(), firstBytes.size() ) == 0 &&
+               std::memcmp( second.data(), firstBytes.data(), firstBytes.size() ) != 0;
+    }
+};
+
+int waitForExit( pid_t pid, int timeoutSec, int *exitStatus = nullptr )
 {
     auto start = std::chrono::steady_clock::now();
     int status = 0;
@@ -114,7 +199,11 @@ int waitForExit( pid_t pid, int timeoutSec )
     {
         pid_t rv = waitpid( pid, &status, WNOHANG );
         if( rv == pid )
+        {
+            if( exitStatus )
+                *exitStatus = status;
             return 0;
+        }
         if( rv < 0 )
             return -1;
 
@@ -138,6 +227,19 @@ void terminateProc( Proc &p )
         static_cast<void>( waitForExit( p.pid, 2 ) );
     }
     p.pid = -1;
+}
+
+bool interruptServer( Proc &p )
+{
+    int status;
+    if( kill( p.pid, SIGINT ) != 0 || waitForExit( p.pid, 4, &status ) != 0 )
+    {
+        terminateProc( p );
+        return false;
+    }
+
+    p.pid = -1;
+    return WIFEXITED( status ) && WEXITSTATUS( status ) == 0;
 }
 
 Proc launchProc( const std::vector<std::string> &argv )
@@ -178,9 +280,29 @@ LocalState probeLocal( const std::string &name )
     st.nx = image.md[0].size[0];
     st.ny = image.md[0].size[1];
     st.cnt0 = image.md[0].cnt0;
+    st.writeTime = image.md[0].writetime;
+    st.firstPixel = image.array.F[0];
 
     ImageStreamIO_closeIm( &image );
     return st;
+}
+
+bool waitForFrame( const std::string &localName, const LocalState &expected )
+{
+    if( !expected.found )
+        return false;
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds( 5 );
+    while( std::chrono::steady_clock::now() < deadline )
+    {
+        LocalState st = probeLocal( localName );
+        if( st.found && st.cnt0 == expected.cnt0 && st.writeTime.tv_sec == expected.writeTime.tv_sec &&
+            st.writeTime.tv_nsec == expected.writeTime.tv_nsec && st.firstPixel == expected.firstPixel )
+            return true;
+
+        std::this_thread::sleep_for( std::chrono::milliseconds( 20 ) );
+    }
+    return false;
 }
 
 bool waitForState( const std::string &localName, uint32_t wantNx, uint32_t wantNy, uint64_t minCnt, int timeoutSec, SourceStream &src )
@@ -242,6 +364,16 @@ int main()
         return 1;
     }
 
+    const LocalState beforePassive = probeLocal( remoteName );
+    if( !waitForFrame( localName, beforePassive ) || !src.writeFrame( true ) ||
+        !waitForFrame( localName, probeLocal( remoteName ) ) )
+    {
+        terminateProc( client );
+        terminateProc( server );
+        std::cerr << "FAIL: passive write did not propagate to client\n";
+        return 1;
+    }
+
     if( !src.create( remoteName, 48, 16, _DATATYPE_FLOAT ) )
     {
         terminateProc( client );
@@ -258,7 +390,12 @@ int main()
         return 1;
     }
 
-    terminateProc( server );
+    if( !interruptServer( server ) )
+    {
+        terminateProc( client );
+        std::cerr << "FAIL: server did not exit cleanly on SIGINT with a connected client\n";
+        return 1;
+    }
     std::this_thread::sleep_for( std::chrono::milliseconds( 300 ) );
 
     server = launchProc( { "./milkzmqServer", "-p", std::to_string( port ), remoteName } );
@@ -280,9 +417,22 @@ int main()
     }
 
     terminateProc( client );
-    terminateProc( server );
+    if( !interruptServer( server ) )
+    {
+        std::cerr << "FAIL: idle server did not exit cleanly on SIGINT\n";
+        return 1;
+    }
+
+    {
+        InprocServer ownershipTest;
+        if( !ownershipTest.checkFrameOwnership( src, remoteName ) )
+        {
+            std::cerr << "FAIL: the server reused storage for a previously sent frame\n";
+            return 1;
+        }
+    }
     src.destroy();
 
-    std::cout << "PASS: reconnect + resize test passed\n";
+    std::cout << "PASS: passive write, resize, SIGINT shutdown, reconnect, and frame ownership\n";
     return 0;
 }

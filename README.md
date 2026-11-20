@@ -92,7 +92,9 @@ Install libxrif from here: https://github.com/jaredmales/xrif
 
 ### Configuration
 
-You may wish to edit the `BIN_PATH` in the makefiles to control where executables are installed.
+The standard installation puts executables in `/usr/local/bin` and headers in `/usr/local/include`. Set `BIN_PATH` and `INC_PATH` on the `make install` command line to override those destinations.
+
+Use `MILK_INC_PATH` and `LIB_PATH` to locate ImageStreamIO at build time. The default paths are `/usr/local/milk/include` and `/usr/local/milk/lib`.
 
 ### Building
 A simple `make` in this directory should build both server and client.
